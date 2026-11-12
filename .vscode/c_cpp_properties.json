@@ -1,0 +1,23 @@
+{
+  "configurations": [
+    {
+      "name": "STM32",
+      "includePath": [
+        "Core/Inc",
+        "Drivers/CMSIS",
+        "Drivers/STM32F10x_StdPeriph_Driver/inc",
+        "System",
+        "application",
+        "bsp",
+        "config",
+        "modules"
+      ],
+      "defines": [
+        "STM32F10X_MD",
+        "USE_STDPERIPH_DRIVER"
+      ],
+      "compilerPath": "D:\\Microsoft VS code\\stm32tools\\@xpack-dev-tools\\arm-none-eabi-gcc\\15.2.1-1.1.1\\.content\\bin\\arm-none-eabi-gcc.EXE"
+    }
+  ],
+  "version": 4
+}

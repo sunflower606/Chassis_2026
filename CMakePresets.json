@@ -1,0 +1,22 @@
+{
+    "version": 3,
+    "configurePresets": [
+        {
+            "name": "f103",
+            "displayName": "STM32F103C8T6 (arm-none-eabi)",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build-cmake",
+            "toolchainFile": "${sourceDir}/cmake/arm-none-eabi.cmake",
+            "cacheVariables": {
+                "CMAKE_MAKE_PROGRAM": "D:/EdgeAI/yolo_env/Scripts/ninja.exe",
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "f103",
+            "configurePreset": "f103"
+        }
+    ]
+}

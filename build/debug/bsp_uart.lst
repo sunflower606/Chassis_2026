@@ -1,0 +1,960 @@
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s 			page 1
+
+
+   1              		.cpu cortex-m3
+   2              		.arch armv7-m
+   3              		.fpu softvfp
+   4              		.eabi_attribute 20, 1
+   5              		.eabi_attribute 21, 1
+   6              		.eabi_attribute 23, 3
+   7              		.eabi_attribute 24, 1
+   8              		.eabi_attribute 25, 1
+   9              		.eabi_attribute 26, 1
+  10              		.eabi_attribute 30, 1
+  11              		.eabi_attribute 34, 1
+  12              		.eabi_attribute 18, 4
+  13              		.file	"bsp_uart.c"
+  14              		.text
+  15              	.Ltext0:
+  16              		.cfi_sections	.debug_frame
+  17              		.file 1 "bsp/bsp_uart.c"
+  18              		.section	.text.BSP_UART_IndexAt,"ax",%progbits
+  19              		.align	1
+  20              		.syntax unified
+  21              		.thumb
+  22              		.thumb_func
+  24              	BSP_UART_IndexAt:
+  25              	.LVL0:
+  26              	.LFB33:
+   1:bsp/bsp_uart.c **** #include "bsp_uart.h"
+   2:bsp/bsp_uart.c **** 
+   3:bsp/bsp_uart.c **** #include <stddef.h>
+   4:bsp/bsp_uart.c **** 
+   5:bsp/bsp_uart.c **** #include "board_config.h"
+   6:bsp/bsp_uart.c **** 
+   7:bsp/bsp_uart.c **** /* 接收环形缓冲：永远留一个空位区分「空」与「满」 */
+   8:bsp/bsp_uart.c **** static uint8_t s_rx_buf[BOARD_LINK_RX_BUF_SIZE];
+   9:bsp/bsp_uart.c **** static volatile uint16_t s_rx_head = 0U;
+  10:bsp/bsp_uart.c **** static volatile uint16_t s_rx_tail = 0U;
+  11:bsp/bsp_uart.c **** 
+  12:bsp/bsp_uart.c **** void BSP_UART_Init(void)
+  13:bsp/bsp_uart.c **** {
+  14:bsp/bsp_uart.c ****     GPIO_InitTypeDef gpio_init;
+  15:bsp/bsp_uart.c ****     USART_InitTypeDef usart_init;
+  16:bsp/bsp_uart.c ****     NVIC_InitTypeDef nvic_init;
+  17:bsp/bsp_uart.c **** 
+  18:bsp/bsp_uart.c ****     RCC_APB2PeriphClockCmd(BOARD_LINK_UART_CLK, ENABLE);
+  19:bsp/bsp_uart.c ****     RCC_APB2PeriphClockCmd(BOARD_LINK_GPIO_CLK, ENABLE);
+  20:bsp/bsp_uart.c **** 
+  21:bsp/bsp_uart.c ****     /* TX：复用推挽 */
+  22:bsp/bsp_uart.c ****     gpio_init.GPIO_Pin = BOARD_LINK_TX_PIN;
+  23:bsp/bsp_uart.c ****     gpio_init.GPIO_Mode = GPIO_Mode_AF_PP;
+  24:bsp/bsp_uart.c ****     gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
+  25:bsp/bsp_uart.c ****     GPIO_Init(BOARD_LINK_GPIO, &gpio_init);
+  26:bsp/bsp_uart.c **** 
+  27:bsp/bsp_uart.c ****     /* RX：浮空输入 */
+  28:bsp/bsp_uart.c ****     gpio_init.GPIO_Pin = BOARD_LINK_RX_PIN;
+  29:bsp/bsp_uart.c ****     gpio_init.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+  30:bsp/bsp_uart.c ****     GPIO_Init(BOARD_LINK_GPIO, &gpio_init);
+  31:bsp/bsp_uart.c **** 
+  32:bsp/bsp_uart.c ****     usart_init.USART_BaudRate = BOARD_LINK_BAUDRATE;
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s 			page 2
+
+
+  33:bsp/bsp_uart.c ****     usart_init.USART_WordLength = USART_WordLength_8b;
+  34:bsp/bsp_uart.c ****     usart_init.USART_StopBits = USART_StopBits_1;
+  35:bsp/bsp_uart.c ****     usart_init.USART_Parity = USART_Parity_No;
+  36:bsp/bsp_uart.c ****     usart_init.USART_HardwareFlowControl = USART_HardwareFlowControl_None;
+  37:bsp/bsp_uart.c ****     usart_init.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;
+  38:bsp/bsp_uart.c ****     USART_Init(BOARD_LINK_UART, &usart_init);
+  39:bsp/bsp_uart.c **** 
+  40:bsp/bsp_uart.c ****     USART_ITConfig(BOARD_LINK_UART, USART_IT_RXNE, ENABLE);
+  41:bsp/bsp_uart.c ****     USART_Cmd(BOARD_LINK_UART, ENABLE);
+  42:bsp/bsp_uart.c **** 
+  43:bsp/bsp_uart.c ****     nvic_init.NVIC_IRQChannel = BOARD_LINK_UART_IRQn;
+  44:bsp/bsp_uart.c ****     nvic_init.NVIC_IRQChannelPreemptionPriority = 1U;
+  45:bsp/bsp_uart.c ****     nvic_init.NVIC_IRQChannelSubPriority = 1U;
+  46:bsp/bsp_uart.c ****     nvic_init.NVIC_IRQChannelCmd = ENABLE;
+  47:bsp/bsp_uart.c ****     NVIC_Init(&nvic_init);
+  48:bsp/bsp_uart.c **** }
+  49:bsp/bsp_uart.c **** 
+  50:bsp/bsp_uart.c **** void BSP_UART_SendByte(uint8_t byte)
+  51:bsp/bsp_uart.c **** {
+  52:bsp/bsp_uart.c ****     USART_SendData(BOARD_LINK_UART, (uint16_t)byte);
+  53:bsp/bsp_uart.c ****     while (USART_GetFlagStatus(BOARD_LINK_UART, USART_FLAG_TXE) == RESET) {
+  54:bsp/bsp_uart.c ****         /* 等待发送数据寄存器空 */
+  55:bsp/bsp_uart.c ****     }
+  56:bsp/bsp_uart.c **** }
+  57:bsp/bsp_uart.c **** 
+  58:bsp/bsp_uart.c **** void BSP_UART_SendString(const char *text)
+  59:bsp/bsp_uart.c **** {
+  60:bsp/bsp_uart.c ****     if (text == NULL) {
+  61:bsp/bsp_uart.c ****         return;
+  62:bsp/bsp_uart.c ****     }
+  63:bsp/bsp_uart.c **** 
+  64:bsp/bsp_uart.c ****     while (*text != '\0') {
+  65:bsp/bsp_uart.c ****         BSP_UART_SendByte((uint8_t)(*text));
+  66:bsp/bsp_uart.c ****         text++;
+  67:bsp/bsp_uart.c ****     }
+  68:bsp/bsp_uart.c **** }
+  69:bsp/bsp_uart.c **** 
+  70:bsp/bsp_uart.c **** uint16_t BSP_UART_GetRxCount(void)
+  71:bsp/bsp_uart.c **** {
+  72:bsp/bsp_uart.c ****     uint16_t head = s_rx_head;
+  73:bsp/bsp_uart.c ****     uint16_t tail = s_rx_tail;
+  74:bsp/bsp_uart.c **** 
+  75:bsp/bsp_uart.c ****     if (head >= tail) {
+  76:bsp/bsp_uart.c ****         return (uint16_t)(head - tail);
+  77:bsp/bsp_uart.c ****     }
+  78:bsp/bsp_uart.c **** 
+  79:bsp/bsp_uart.c ****     return (uint16_t)(BOARD_LINK_RX_BUF_SIZE - tail + head);
+  80:bsp/bsp_uart.c **** }
+  81:bsp/bsp_uart.c **** 
+  82:bsp/bsp_uart.c **** /* 距队尾 offset 个字节的物理下标 */
+  83:bsp/bsp_uart.c **** static uint16_t BSP_UART_IndexAt(uint16_t offset)
+  84:bsp/bsp_uart.c **** {
+  27              		.loc 1 84 1 view -0
+  28              		.cfi_startproc
+  29              		@ args = 0, pretend = 0, frame = 0
+  30              		@ frame_needed = 0, uses_anonymous_args = 0
+  31              		@ link register save eliminated.
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s 			page 3
+
+
+  85:bsp/bsp_uart.c ****     uint16_t index = (uint16_t)(s_rx_tail + offset);
+  32              		.loc 1 85 5 view .LVU1
+  33              		.loc 1 85 22 is_stmt 0 view .LVU2
+  34 0000 054B     		ldr	r3, .L3
+  35 0002 1B88     		ldrh	r3, [r3]
+  36 0004 9BB2     		uxth	r3, r3
+  37              		.loc 1 85 14 view .LVU3
+  38 0006 1844     		add	r0, r0, r3
+  39              	.LVL1:
+  40              		.loc 1 85 14 view .LVU4
+  41 0008 80B2     		uxth	r0, r0
+  42              	.LVL2:
+  86:bsp/bsp_uart.c **** 
+  87:bsp/bsp_uart.c ****     if (index >= BOARD_LINK_RX_BUF_SIZE) {
+  43              		.loc 1 87 5 is_stmt 1 view .LVU5
+  44              		.loc 1 87 8 is_stmt 0 view .LVU6
+  45 000a FF28     		cmp	r0, #255
+  46 000c 02D9     		bls	.L2
+  88:bsp/bsp_uart.c ****         index = (uint16_t)(index - BOARD_LINK_RX_BUF_SIZE);
+  47              		.loc 1 88 9 is_stmt 1 view .LVU7
+  48              		.loc 1 88 15 is_stmt 0 view .LVU8
+  49 000e A0F58070 		sub	r0, r0, #256
+  50              	.LVL3:
+  51              		.loc 1 88 15 view .LVU9
+  52 0012 80B2     		uxth	r0, r0
+  53              	.LVL4:
+  54              	.L2:
+  89:bsp/bsp_uart.c ****     }
+  90:bsp/bsp_uart.c **** 
+  91:bsp/bsp_uart.c ****     return index;
+  55              		.loc 1 91 5 is_stmt 1 view .LVU10
+  92:bsp/bsp_uart.c **** }
+  56              		.loc 1 92 1 is_stmt 0 view .LVU11
+  57 0014 7047     		bx	lr
+  58              	.L4:
+  59 0016 00BF     		.align	2
+  60              	.L3:
+  61 0018 00000000 		.word	s_rx_tail
+  62              		.cfi_endproc
+  63              	.LFE33:
+  65              		.section	.text.BSP_UART_Init,"ax",%progbits
+  66              		.align	1
+  67              		.global	BSP_UART_Init
+  68              		.syntax unified
+  69              		.thumb
+  70              		.thumb_func
+  72              	BSP_UART_Init:
+  73              	.LFB29:
+  13:bsp/bsp_uart.c ****     GPIO_InitTypeDef gpio_init;
+  74              		.loc 1 13 1 is_stmt 1 view -0
+  75              		.cfi_startproc
+  76              		@ args = 0, pretend = 0, frame = 24
+  77              		@ frame_needed = 0, uses_anonymous_args = 0
+  78 0000 30B5     		push	{r4, r5, lr}
+  79              		.cfi_def_cfa_offset 12
+  80              		.cfi_offset 4, -12
+  81              		.cfi_offset 5, -8
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s 			page 4
+
+
+  82              		.cfi_offset 14, -4
+  83 0002 87B0     		sub	sp, sp, #28
+  84              		.cfi_def_cfa_offset 40
+  14:bsp/bsp_uart.c ****     USART_InitTypeDef usart_init;
+  85              		.loc 1 14 5 view .LVU13
+  15:bsp/bsp_uart.c ****     NVIC_InitTypeDef nvic_init;
+  86              		.loc 1 15 5 view .LVU14
+  16:bsp/bsp_uart.c **** 
+  87              		.loc 1 16 5 view .LVU15
+  18:bsp/bsp_uart.c ****     RCC_APB2PeriphClockCmd(BOARD_LINK_GPIO_CLK, ENABLE);
+  88              		.loc 1 18 5 view .LVU16
+  89 0004 0121     		movs	r1, #1
+  90 0006 4FF48040 		mov	r0, #16384
+  91 000a FFF7FEFF 		bl	RCC_APB2PeriphClockCmd
+  92              	.LVL5:
+  19:bsp/bsp_uart.c **** 
+  93              		.loc 1 19 5 view .LVU17
+  94 000e 0121     		movs	r1, #1
+  95 0010 0420     		movs	r0, #4
+  96 0012 FFF7FEFF 		bl	RCC_APB2PeriphClockCmd
+  97              	.LVL6:
+  22:bsp/bsp_uart.c ****     gpio_init.GPIO_Mode = GPIO_Mode_AF_PP;
+  98              		.loc 1 22 5 view .LVU18
+  22:bsp/bsp_uart.c ****     gpio_init.GPIO_Mode = GPIO_Mode_AF_PP;
+  99              		.loc 1 22 24 is_stmt 0 view .LVU19
+ 100 0016 4FF40073 		mov	r3, #512
+ 101 001a ADF81430 		strh	r3, [sp, #20]	@ movhi
+  23:bsp/bsp_uart.c ****     gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
+ 102              		.loc 1 23 5 is_stmt 1 view .LVU20
+  23:bsp/bsp_uart.c ****     gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
+ 103              		.loc 1 23 25 is_stmt 0 view .LVU21
+ 104 001e 1823     		movs	r3, #24
+ 105 0020 8DF81730 		strb	r3, [sp, #23]
+  24:bsp/bsp_uart.c ****     GPIO_Init(BOARD_LINK_GPIO, &gpio_init);
+ 106              		.loc 1 24 5 is_stmt 1 view .LVU22
+  24:bsp/bsp_uart.c ****     GPIO_Init(BOARD_LINK_GPIO, &gpio_init);
+ 107              		.loc 1 24 26 is_stmt 0 view .LVU23
+ 108 0024 0323     		movs	r3, #3
+ 109 0026 8DF81630 		strb	r3, [sp, #22]
+  25:bsp/bsp_uart.c **** 
+ 110              		.loc 1 25 5 is_stmt 1 view .LVU24
+ 111 002a 05AD     		add	r5, sp, #20
+ 112 002c 1E4C     		ldr	r4, .L7
+ 113 002e 2946     		mov	r1, r5
+ 114 0030 2046     		mov	r0, r4
+ 115 0032 FFF7FEFF 		bl	GPIO_Init
+ 116              	.LVL7:
+  28:bsp/bsp_uart.c ****     gpio_init.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+ 117              		.loc 1 28 5 view .LVU25
+  28:bsp/bsp_uart.c ****     gpio_init.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+ 118              		.loc 1 28 24 is_stmt 0 view .LVU26
+ 119 0036 4FF48063 		mov	r3, #1024
+ 120 003a ADF81430 		strh	r3, [sp, #20]	@ movhi
+  29:bsp/bsp_uart.c ****     GPIO_Init(BOARD_LINK_GPIO, &gpio_init);
+ 121              		.loc 1 29 5 is_stmt 1 view .LVU27
+  29:bsp/bsp_uart.c ****     GPIO_Init(BOARD_LINK_GPIO, &gpio_init);
+ 122              		.loc 1 29 25 is_stmt 0 view .LVU28
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s 			page 5
+
+
+ 123 003e 0423     		movs	r3, #4
+ 124 0040 8DF81730 		strb	r3, [sp, #23]
+  30:bsp/bsp_uart.c **** 
+ 125              		.loc 1 30 5 is_stmt 1 view .LVU29
+ 126 0044 2946     		mov	r1, r5
+ 127 0046 2046     		mov	r0, r4
+ 128 0048 FFF7FEFF 		bl	GPIO_Init
+ 129              	.LVL8:
+  32:bsp/bsp_uart.c ****     usart_init.USART_WordLength = USART_WordLength_8b;
+ 130              		.loc 1 32 5 view .LVU30
+  32:bsp/bsp_uart.c ****     usart_init.USART_WordLength = USART_WordLength_8b;
+ 131              		.loc 1 32 31 is_stmt 0 view .LVU31
+ 132 004c 4FF4E133 		mov	r3, #115200
+ 133 0050 0193     		str	r3, [sp, #4]
+  33:bsp/bsp_uart.c ****     usart_init.USART_StopBits = USART_StopBits_1;
+ 134              		.loc 1 33 5 is_stmt 1 view .LVU32
+  33:bsp/bsp_uart.c ****     usart_init.USART_StopBits = USART_StopBits_1;
+ 135              		.loc 1 33 33 is_stmt 0 view .LVU33
+ 136 0052 0023     		movs	r3, #0
+ 137 0054 ADF80830 		strh	r3, [sp, #8]	@ movhi
+  34:bsp/bsp_uart.c ****     usart_init.USART_Parity = USART_Parity_No;
+ 138              		.loc 1 34 5 is_stmt 1 view .LVU34
+  34:bsp/bsp_uart.c ****     usart_init.USART_Parity = USART_Parity_No;
+ 139              		.loc 1 34 31 is_stmt 0 view .LVU35
+ 140 0058 ADF80A30 		strh	r3, [sp, #10]	@ movhi
+  35:bsp/bsp_uart.c ****     usart_init.USART_HardwareFlowControl = USART_HardwareFlowControl_None;
+ 141              		.loc 1 35 5 is_stmt 1 view .LVU36
+  35:bsp/bsp_uart.c ****     usart_init.USART_HardwareFlowControl = USART_HardwareFlowControl_None;
+ 142              		.loc 1 35 29 is_stmt 0 view .LVU37
+ 143 005c ADF80C30 		strh	r3, [sp, #12]	@ movhi
+  36:bsp/bsp_uart.c ****     usart_init.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;
+ 144              		.loc 1 36 5 is_stmt 1 view .LVU38
+  36:bsp/bsp_uart.c ****     usart_init.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;
+ 145              		.loc 1 36 42 is_stmt 0 view .LVU39
+ 146 0060 ADF81030 		strh	r3, [sp, #16]	@ movhi
+  37:bsp/bsp_uart.c ****     USART_Init(BOARD_LINK_UART, &usart_init);
+ 147              		.loc 1 37 5 is_stmt 1 view .LVU40
+  37:bsp/bsp_uart.c ****     USART_Init(BOARD_LINK_UART, &usart_init);
+ 148              		.loc 1 37 27 is_stmt 0 view .LVU41
+ 149 0064 0C23     		movs	r3, #12
+ 150 0066 ADF80E30 		strh	r3, [sp, #14]	@ movhi
+  38:bsp/bsp_uart.c **** 
+ 151              		.loc 1 38 5 is_stmt 1 view .LVU42
+ 152 006a 04F54054 		add	r4, r4, #12288
+ 153 006e 01A9     		add	r1, sp, #4
+ 154 0070 2046     		mov	r0, r4
+ 155 0072 FFF7FEFF 		bl	USART_Init
+ 156              	.LVL9:
+  40:bsp/bsp_uart.c ****     USART_Cmd(BOARD_LINK_UART, ENABLE);
+ 157              		.loc 1 40 5 view .LVU43
+ 158 0076 0122     		movs	r2, #1
+ 159 0078 40F22551 		movw	r1, #1317
+ 160 007c 2046     		mov	r0, r4
+ 161 007e FFF7FEFF 		bl	USART_ITConfig
+ 162              	.LVL10:
+  41:bsp/bsp_uart.c **** 
+ 163              		.loc 1 41 5 view .LVU44
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s 			page 6
+
+
+ 164 0082 0121     		movs	r1, #1
+ 165 0084 2046     		mov	r0, r4
+ 166 0086 FFF7FEFF 		bl	USART_Cmd
+ 167              	.LVL11:
+  43:bsp/bsp_uart.c ****     nvic_init.NVIC_IRQChannelPreemptionPriority = 1U;
+ 168              		.loc 1 43 5 view .LVU45
+  43:bsp/bsp_uart.c ****     nvic_init.NVIC_IRQChannelPreemptionPriority = 1U;
+ 169              		.loc 1 43 31 is_stmt 0 view .LVU46
+ 170 008a 2523     		movs	r3, #37
+ 171 008c 8DF80030 		strb	r3, [sp]
+  44:bsp/bsp_uart.c ****     nvic_init.NVIC_IRQChannelSubPriority = 1U;
+ 172              		.loc 1 44 5 is_stmt 1 view .LVU47
+  44:bsp/bsp_uart.c ****     nvic_init.NVIC_IRQChannelSubPriority = 1U;
+ 173              		.loc 1 44 49 is_stmt 0 view .LVU48
+ 174 0090 0123     		movs	r3, #1
+ 175 0092 8DF80130 		strb	r3, [sp, #1]
+  45:bsp/bsp_uart.c ****     nvic_init.NVIC_IRQChannelCmd = ENABLE;
+ 176              		.loc 1 45 5 is_stmt 1 view .LVU49
+  45:bsp/bsp_uart.c ****     nvic_init.NVIC_IRQChannelCmd = ENABLE;
+ 177              		.loc 1 45 42 is_stmt 0 view .LVU50
+ 178 0096 8DF80230 		strb	r3, [sp, #2]
+  46:bsp/bsp_uart.c ****     NVIC_Init(&nvic_init);
+ 179              		.loc 1 46 5 is_stmt 1 view .LVU51
+  46:bsp/bsp_uart.c ****     NVIC_Init(&nvic_init);
+ 180              		.loc 1 46 34 is_stmt 0 view .LVU52
+ 181 009a 8DF80330 		strb	r3, [sp, #3]
+  47:bsp/bsp_uart.c **** }
+ 182              		.loc 1 47 5 is_stmt 1 view .LVU53
+ 183 009e 6846     		mov	r0, sp
+ 184 00a0 FFF7FEFF 		bl	NVIC_Init
+ 185              	.LVL12:
+  48:bsp/bsp_uart.c **** 
+ 186              		.loc 1 48 1 is_stmt 0 view .LVU54
+ 187 00a4 07B0     		add	sp, sp, #28
+ 188              		.cfi_def_cfa_offset 12
+ 189              		@ sp needed
+ 190 00a6 30BD     		pop	{r4, r5, pc}
+ 191              	.L8:
+ 192              		.align	2
+ 193              	.L7:
+ 194 00a8 00080140 		.word	1073809408
+ 195              		.cfi_endproc
+ 196              	.LFE29:
+ 198              		.section	.text.BSP_UART_SendByte,"ax",%progbits
+ 199              		.align	1
+ 200              		.global	BSP_UART_SendByte
+ 201              		.syntax unified
+ 202              		.thumb
+ 203              		.thumb_func
+ 205              	BSP_UART_SendByte:
+ 206              	.LVL13:
+ 207              	.LFB30:
+  51:bsp/bsp_uart.c ****     USART_SendData(BOARD_LINK_UART, (uint16_t)byte);
+ 208              		.loc 1 51 1 is_stmt 1 view -0
+ 209              		.cfi_startproc
+ 210              		@ args = 0, pretend = 0, frame = 0
+ 211              		@ frame_needed = 0, uses_anonymous_args = 0
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s 			page 7
+
+
+  51:bsp/bsp_uart.c ****     USART_SendData(BOARD_LINK_UART, (uint16_t)byte);
+ 212              		.loc 1 51 1 is_stmt 0 view .LVU56
+ 213 0000 08B5     		push	{r3, lr}
+ 214              		.cfi_def_cfa_offset 8
+ 215              		.cfi_offset 3, -8
+ 216              		.cfi_offset 14, -4
+ 217 0002 0146     		mov	r1, r0
+  52:bsp/bsp_uart.c ****     while (USART_GetFlagStatus(BOARD_LINK_UART, USART_FLAG_TXE) == RESET) {
+ 218              		.loc 1 52 5 is_stmt 1 view .LVU57
+ 219 0004 0448     		ldr	r0, .L12
+ 220              	.LVL14:
+  52:bsp/bsp_uart.c ****     while (USART_GetFlagStatus(BOARD_LINK_UART, USART_FLAG_TXE) == RESET) {
+ 221              		.loc 1 52 5 is_stmt 0 view .LVU58
+ 222 0006 FFF7FEFF 		bl	USART_SendData
+ 223              	.LVL15:
+  53:bsp/bsp_uart.c ****         /* 等待发送数据寄存器空 */
+ 224              		.loc 1 53 5 is_stmt 1 view .LVU59
+ 225              	.L10:
+  55:bsp/bsp_uart.c **** }
+ 226              		.loc 1 55 5 view .LVU60
+  53:bsp/bsp_uart.c ****         /* 等待发送数据寄存器空 */
+ 227              		.loc 1 53 65 discriminator 2 view .LVU61
+  53:bsp/bsp_uart.c ****         /* 等待发送数据寄存器空 */
+ 228              		.loc 1 53 12 is_stmt 0 discriminator 2 view .LVU62
+ 229 000a 8021     		movs	r1, #128
+ 230 000c 0248     		ldr	r0, .L12
+ 231 000e FFF7FEFF 		bl	USART_GetFlagStatus
+ 232              	.LVL16:
+  53:bsp/bsp_uart.c ****         /* 等待发送数据寄存器空 */
+ 233              		.loc 1 53 65 discriminator 2 view .LVU63
+ 234 0012 0028     		cmp	r0, #0
+ 235 0014 F9D0     		beq	.L10
+  56:bsp/bsp_uart.c **** 
+ 236              		.loc 1 56 1 view .LVU64
+ 237 0016 08BD     		pop	{r3, pc}
+ 238              	.L13:
+ 239              		.align	2
+ 240              	.L12:
+ 241 0018 00380140 		.word	1073821696
+ 242              		.cfi_endproc
+ 243              	.LFE30:
+ 245              		.section	.text.BSP_UART_SendString,"ax",%progbits
+ 246              		.align	1
+ 247              		.global	BSP_UART_SendString
+ 248              		.syntax unified
+ 249              		.thumb
+ 250              		.thumb_func
+ 252              	BSP_UART_SendString:
+ 253              	.LVL17:
+ 254              	.LFB31:
+  59:bsp/bsp_uart.c ****     if (text == NULL) {
+ 255              		.loc 1 59 1 is_stmt 1 view -0
+ 256              		.cfi_startproc
+ 257              		@ args = 0, pretend = 0, frame = 0
+ 258              		@ frame_needed = 0, uses_anonymous_args = 0
+  59:bsp/bsp_uart.c ****     if (text == NULL) {
+ 259              		.loc 1 59 1 is_stmt 0 view .LVU66
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s 			page 8
+
+
+ 260 0000 10B5     		push	{r4, lr}
+ 261              		.cfi_def_cfa_offset 8
+ 262              		.cfi_offset 4, -8
+ 263              		.cfi_offset 14, -4
+  60:bsp/bsp_uart.c ****         return;
+ 264              		.loc 1 60 5 is_stmt 1 view .LVU67
+  60:bsp/bsp_uart.c ****         return;
+ 265              		.loc 1 60 8 is_stmt 0 view .LVU68
+ 266 0002 0446     		mov	r4, r0
+ 267 0004 18B9     		cbnz	r0, .L16
+ 268 0006 05E0     		b	.L14
+ 269              	.LVL18:
+ 270              	.L17:
+  65:bsp/bsp_uart.c ****         text++;
+ 271              		.loc 1 65 9 is_stmt 1 view .LVU69
+ 272 0008 FFF7FEFF 		bl	BSP_UART_SendByte
+ 273              	.LVL19:
+  66:bsp/bsp_uart.c ****     }
+ 274              		.loc 1 66 9 view .LVU70
+  66:bsp/bsp_uart.c ****     }
+ 275              		.loc 1 66 13 is_stmt 0 view .LVU71
+ 276 000c 0134     		adds	r4, r4, #1
+ 277              	.LVL20:
+ 278              	.L16:
+  64:bsp/bsp_uart.c ****         BSP_UART_SendByte((uint8_t)(*text));
+ 279              		.loc 1 64 18 is_stmt 1 view .LVU72
+  64:bsp/bsp_uart.c ****         BSP_UART_SendByte((uint8_t)(*text));
+ 280              		.loc 1 64 12 is_stmt 0 view .LVU73
+ 281 000e 2078     		ldrb	r0, [r4]	@ zero_extendqisi2
+  64:bsp/bsp_uart.c ****         BSP_UART_SendByte((uint8_t)(*text));
+ 282              		.loc 1 64 18 view .LVU74
+ 283 0010 0028     		cmp	r0, #0
+ 284 0012 F9D1     		bne	.L17
+ 285              	.L14:
+  68:bsp/bsp_uart.c **** 
+ 286              		.loc 1 68 1 view .LVU75
+ 287 0014 10BD     		pop	{r4, pc}
+  68:bsp/bsp_uart.c **** 
+ 288              		.loc 1 68 1 view .LVU76
+ 289              		.cfi_endproc
+ 290              	.LFE31:
+ 292              		.section	.text.BSP_UART_GetRxCount,"ax",%progbits
+ 293              		.align	1
+ 294              		.global	BSP_UART_GetRxCount
+ 295              		.syntax unified
+ 296              		.thumb
+ 297              		.thumb_func
+ 299              	BSP_UART_GetRxCount:
+ 300              	.LFB32:
+  71:bsp/bsp_uart.c ****     uint16_t head = s_rx_head;
+ 301              		.loc 1 71 1 is_stmt 1 view -0
+ 302              		.cfi_startproc
+ 303              		@ args = 0, pretend = 0, frame = 0
+ 304              		@ frame_needed = 0, uses_anonymous_args = 0
+ 305              		@ link register save eliminated.
+  72:bsp/bsp_uart.c ****     uint16_t tail = s_rx_tail;
+ 306              		.loc 1 72 5 view .LVU78
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s 			page 9
+
+
+  72:bsp/bsp_uart.c ****     uint16_t tail = s_rx_tail;
+ 307              		.loc 1 72 14 is_stmt 0 view .LVU79
+ 308 0000 084B     		ldr	r3, .L23
+ 309 0002 1888     		ldrh	r0, [r3]
+ 310 0004 80B2     		uxth	r0, r0
+ 311              	.LVL21:
+  73:bsp/bsp_uart.c **** 
+ 312              		.loc 1 73 5 is_stmt 1 view .LVU80
+  73:bsp/bsp_uart.c **** 
+ 313              		.loc 1 73 14 is_stmt 0 view .LVU81
+ 314 0006 084B     		ldr	r3, .L23+4
+ 315 0008 1B88     		ldrh	r3, [r3]
+ 316 000a 9BB2     		uxth	r3, r3
+ 317              	.LVL22:
+  75:bsp/bsp_uart.c ****         return (uint16_t)(head - tail);
+ 318              		.loc 1 75 5 is_stmt 1 view .LVU82
+  75:bsp/bsp_uart.c ****         return (uint16_t)(head - tail);
+ 319              		.loc 1 75 8 is_stmt 0 view .LVU83
+ 320 000c 9842     		cmp	r0, r3
+ 321 000e 05D2     		bcs	.L22
+  79:bsp/bsp_uart.c **** }
+ 322              		.loc 1 79 5 is_stmt 1 view .LVU84
+  79:bsp/bsp_uart.c **** }
+ 323              		.loc 1 79 53 is_stmt 0 view .LVU85
+ 324 0010 C01A     		subs	r0, r0, r3
+ 325              	.LVL23:
+  79:bsp/bsp_uart.c **** }
+ 326              		.loc 1 79 53 view .LVU86
+ 327 0012 80B2     		uxth	r0, r0
+  79:bsp/bsp_uart.c **** }
+ 328              		.loc 1 79 12 view .LVU87
+ 329 0014 00F58070 		add	r0, r0, #256
+ 330 0018 80B2     		uxth	r0, r0
+  80:bsp/bsp_uart.c **** 
+ 331              		.loc 1 80 1 view .LVU88
+ 332 001a 7047     		bx	lr
+ 333              	.LVL24:
+ 334              	.L22:
+  76:bsp/bsp_uart.c ****     }
+ 335              		.loc 1 76 9 is_stmt 1 view .LVU89
+  76:bsp/bsp_uart.c ****     }
+ 336              		.loc 1 76 16 is_stmt 0 view .LVU90
+ 337 001c C01A     		subs	r0, r0, r3
+ 338              	.LVL25:
+  76:bsp/bsp_uart.c ****     }
+ 339              		.loc 1 76 16 view .LVU91
+ 340 001e 80B2     		uxth	r0, r0
+ 341 0020 7047     		bx	lr
+ 342              	.L24:
+ 343 0022 00BF     		.align	2
+ 344              	.L23:
+ 345 0024 00000000 		.word	s_rx_head
+ 346 0028 00000000 		.word	s_rx_tail
+ 347              		.cfi_endproc
+ 348              	.LFE32:
+ 350              		.section	.text.BSP_UART_PeekAt,"ax",%progbits
+ 351              		.align	1
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s 			page 10
+
+
+ 352              		.global	BSP_UART_PeekAt
+ 353              		.syntax unified
+ 354              		.thumb
+ 355              		.thumb_func
+ 357              	BSP_UART_PeekAt:
+ 358              	.LVL26:
+ 359              	.LFB34:
+  93:bsp/bsp_uart.c **** 
+  94:bsp/bsp_uart.c **** uint8_t BSP_UART_PeekAt(uint16_t offset, uint8_t *byte)
+  95:bsp/bsp_uart.c **** {
+ 360              		.loc 1 95 1 is_stmt 1 view -0
+ 361              		.cfi_startproc
+ 362              		@ args = 0, pretend = 0, frame = 0
+ 363              		@ frame_needed = 0, uses_anonymous_args = 0
+ 364              		.loc 1 95 1 is_stmt 0 view .LVU93
+ 365 0000 38B5     		push	{r3, r4, r5, lr}
+ 366              		.cfi_def_cfa_offset 16
+ 367              		.cfi_offset 3, -16
+ 368              		.cfi_offset 4, -12
+ 369              		.cfi_offset 5, -8
+ 370              		.cfi_offset 14, -4
+ 371 0002 0446     		mov	r4, r0
+ 372 0004 0D46     		mov	r5, r1
+  96:bsp/bsp_uart.c ****     if (offset >= BSP_UART_GetRxCount()) {
+ 373              		.loc 1 96 5 is_stmt 1 view .LVU94
+ 374              		.loc 1 96 19 is_stmt 0 view .LVU95
+ 375 0006 FFF7FEFF 		bl	BSP_UART_GetRxCount
+ 376              	.LVL27:
+ 377              		.loc 1 96 8 discriminator 1 view .LVU96
+ 378 000a A042     		cmp	r0, r4
+ 379 000c 08D9     		bls	.L27
+  97:bsp/bsp_uart.c ****         return 0U;
+  98:bsp/bsp_uart.c ****     }
+  99:bsp/bsp_uart.c **** 
+ 100:bsp/bsp_uart.c ****     if (byte != NULL) {
+ 380              		.loc 1 100 5 is_stmt 1 view .LVU97
+ 381              		.loc 1 100 8 is_stmt 0 view .LVU98
+ 382 000e 4DB1     		cbz	r5, .L28
+ 101:bsp/bsp_uart.c ****         *byte = s_rx_buf[BSP_UART_IndexAt(offset)];
+ 383              		.loc 1 101 9 is_stmt 1 view .LVU99
+ 384              		.loc 1 101 26 is_stmt 0 view .LVU100
+ 385 0010 2046     		mov	r0, r4
+ 386 0012 FFF7FEFF 		bl	BSP_UART_IndexAt
+ 387              	.LVL28:
+ 388              		.loc 1 101 25 discriminator 1 view .LVU101
+ 389 0016 044B     		ldr	r3, .L30
+ 390 0018 1B5C     		ldrb	r3, [r3, r0]	@ zero_extendqisi2
+ 391              		.loc 1 101 15 discriminator 1 view .LVU102
+ 392 001a 2B70     		strb	r3, [r5]
+ 102:bsp/bsp_uart.c ****     }
+ 103:bsp/bsp_uart.c **** 
+ 104:bsp/bsp_uart.c ****     return 1U;
+ 393              		.loc 1 104 12 view .LVU103
+ 394 001c 0120     		movs	r0, #1
+ 395              	.L26:
+ 105:bsp/bsp_uart.c **** }
+ 396              		.loc 1 105 1 view .LVU104
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s 			page 11
+
+
+ 397 001e 38BD     		pop	{r3, r4, r5, pc}
+ 398              	.LVL29:
+ 399              	.L27:
+  97:bsp/bsp_uart.c ****     }
+ 400              		.loc 1 97 16 view .LVU105
+ 401 0020 0020     		movs	r0, #0
+ 402 0022 FCE7     		b	.L26
+ 403              	.L28:
+ 104:bsp/bsp_uart.c **** }
+ 404              		.loc 1 104 12 view .LVU106
+ 405 0024 0120     		movs	r0, #1
+ 406 0026 FAE7     		b	.L26
+ 407              	.L31:
+ 408              		.align	2
+ 409              	.L30:
+ 410 0028 00000000 		.word	s_rx_buf
+ 411              		.cfi_endproc
+ 412              	.LFE34:
+ 414              		.section	.text.BSP_UART_Skip,"ax",%progbits
+ 415              		.align	1
+ 416              		.global	BSP_UART_Skip
+ 417              		.syntax unified
+ 418              		.thumb
+ 419              		.thumb_func
+ 421              	BSP_UART_Skip:
+ 422              	.LVL30:
+ 423              	.LFB35:
+ 106:bsp/bsp_uart.c **** 
+ 107:bsp/bsp_uart.c **** void BSP_UART_Skip(uint16_t count)
+ 108:bsp/bsp_uart.c **** {
+ 424              		.loc 1 108 1 is_stmt 1 view -0
+ 425              		.cfi_startproc
+ 426              		@ args = 0, pretend = 0, frame = 0
+ 427              		@ frame_needed = 0, uses_anonymous_args = 0
+ 428              		.loc 1 108 1 is_stmt 0 view .LVU108
+ 429 0000 10B5     		push	{r4, lr}
+ 430              		.cfi_def_cfa_offset 8
+ 431              		.cfi_offset 4, -8
+ 432              		.cfi_offset 14, -4
+ 433 0002 0446     		mov	r4, r0
+ 109:bsp/bsp_uart.c ****     uint16_t available = BSP_UART_GetRxCount();
+ 434              		.loc 1 109 5 is_stmt 1 view .LVU109
+ 435              		.loc 1 109 26 is_stmt 0 view .LVU110
+ 436 0004 FFF7FEFF 		bl	BSP_UART_GetRxCount
+ 437              	.LVL31:
+ 110:bsp/bsp_uart.c **** 
+ 111:bsp/bsp_uart.c ****     if (count > available) {
+ 438              		.loc 1 111 5 is_stmt 1 view .LVU111
+ 439              		.loc 1 111 8 is_stmt 0 view .LVU112
+ 440 0008 A042     		cmp	r0, r4
+ 441 000a 00D3     		bcc	.L33
+ 442 000c 2046     		mov	r0, r4
+ 443              	.LVL32:
+ 444              	.L33:
+ 112:bsp/bsp_uart.c ****         count = available;
+ 113:bsp/bsp_uart.c ****     }
+ 114:bsp/bsp_uart.c **** 
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s 			page 12
+
+
+ 115:bsp/bsp_uart.c ****     s_rx_tail = BSP_UART_IndexAt(count);
+ 445              		.loc 1 115 5 is_stmt 1 view .LVU113
+ 446              		.loc 1 115 17 is_stmt 0 view .LVU114
+ 447 000e FFF7FEFF 		bl	BSP_UART_IndexAt
+ 448              	.LVL33:
+ 449              		.loc 1 115 15 discriminator 1 view .LVU115
+ 450 0012 014B     		ldr	r3, .L35
+ 451 0014 1880     		strh	r0, [r3]	@ movhi
+ 116:bsp/bsp_uart.c **** }
+ 452              		.loc 1 116 1 view .LVU116
+ 453 0016 10BD     		pop	{r4, pc}
+ 454              	.L36:
+ 455              		.align	2
+ 456              	.L35:
+ 457 0018 00000000 		.word	s_rx_tail
+ 458              		.cfi_endproc
+ 459              	.LFE35:
+ 461              		.section	.text.BSP_UART_ReadByte,"ax",%progbits
+ 462              		.align	1
+ 463              		.global	BSP_UART_ReadByte
+ 464              		.syntax unified
+ 465              		.thumb
+ 466              		.thumb_func
+ 468              	BSP_UART_ReadByte:
+ 469              	.LFB36:
+ 117:bsp/bsp_uart.c **** 
+ 118:bsp/bsp_uart.c **** uint8_t BSP_UART_ReadByte(void)
+ 119:bsp/bsp_uart.c **** {
+ 470              		.loc 1 119 1 is_stmt 1 view -0
+ 471              		.cfi_startproc
+ 472              		@ args = 0, pretend = 0, frame = 0
+ 473              		@ frame_needed = 0, uses_anonymous_args = 0
+ 474              		@ link register save eliminated.
+ 120:bsp/bsp_uart.c ****     uint8_t byte;
+ 475              		.loc 1 120 5 view .LVU118
+ 121:bsp/bsp_uart.c **** 
+ 122:bsp/bsp_uart.c ****     if (s_rx_head == s_rx_tail) {
+ 476              		.loc 1 122 5 view .LVU119
+ 477              		.loc 1 122 19 is_stmt 0 view .LVU120
+ 478 0000 0A4B     		ldr	r3, .L40
+ 479 0002 1A88     		ldrh	r2, [r3]
+ 480 0004 92B2     		uxth	r2, r2
+ 481 0006 0A4B     		ldr	r3, .L40+4
+ 482 0008 1B88     		ldrh	r3, [r3]
+ 483 000a 9BB2     		uxth	r3, r3
+ 484              		.loc 1 122 8 view .LVU121
+ 485 000c 9A42     		cmp	r2, r3
+ 486 000e 0AD0     		beq	.L39
+ 123:bsp/bsp_uart.c ****         return 0xFFU;
+ 124:bsp/bsp_uart.c ****     }
+ 125:bsp/bsp_uart.c **** 
+ 126:bsp/bsp_uart.c ****     byte = s_rx_buf[s_rx_tail];
+ 487              		.loc 1 126 5 is_stmt 1 view .LVU122
+ 488              		.loc 1 126 20 is_stmt 0 view .LVU123
+ 489 0010 074A     		ldr	r2, .L40+4
+ 490 0012 1388     		ldrh	r3, [r2]
+ 491 0014 9BB2     		uxth	r3, r3
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s 			page 13
+
+
+ 492              		.loc 1 126 10 view .LVU124
+ 493 0016 0749     		ldr	r1, .L40+8
+ 494 0018 C85C     		ldrb	r0, [r1, r3]	@ zero_extendqisi2
+ 495              	.LVL34:
+ 127:bsp/bsp_uart.c ****     s_rx_tail = (uint16_t)((s_rx_tail + 1U) % BOARD_LINK_RX_BUF_SIZE);
+ 496              		.loc 1 127 5 is_stmt 1 view .LVU125
+ 497              		.loc 1 127 17 is_stmt 0 view .LVU126
+ 498 001a 1388     		ldrh	r3, [r2]
+ 499 001c 9BB2     		uxth	r3, r3
+ 500 001e 0133     		adds	r3, r3, #1
+ 501 0020 DBB2     		uxtb	r3, r3
+ 502              		.loc 1 127 15 view .LVU127
+ 503 0022 1380     		strh	r3, [r2]	@ movhi
+ 128:bsp/bsp_uart.c **** 
+ 129:bsp/bsp_uart.c ****     return byte;
+ 504              		.loc 1 129 5 is_stmt 1 view .LVU128
+ 505              		.loc 1 129 12 is_stmt 0 view .LVU129
+ 506 0024 7047     		bx	lr
+ 507              	.LVL35:
+ 508              	.L39:
+ 123:bsp/bsp_uart.c ****     }
+ 509              		.loc 1 123 16 view .LVU130
+ 510 0026 FF20     		movs	r0, #255
+ 130:bsp/bsp_uart.c **** }
+ 511              		.loc 1 130 1 view .LVU131
+ 512 0028 7047     		bx	lr
+ 513              	.L41:
+ 514 002a 00BF     		.align	2
+ 515              	.L40:
+ 516 002c 00000000 		.word	s_rx_head
+ 517 0030 00000000 		.word	s_rx_tail
+ 518 0034 00000000 		.word	s_rx_buf
+ 519              		.cfi_endproc
+ 520              	.LFE36:
+ 522              		.section	.text.USART1_IRQHandler,"ax",%progbits
+ 523              		.align	1
+ 524              		.global	USART1_IRQHandler
+ 525              		.syntax unified
+ 526              		.thumb
+ 527              		.thumb_func
+ 529              	USART1_IRQHandler:
+ 530              	.LFB37:
+ 131:bsp/bsp_uart.c **** 
+ 132:bsp/bsp_uart.c **** void BOARD_LINK_UART_IRQHandler(void)
+ 133:bsp/bsp_uart.c **** {
+ 531              		.loc 1 133 1 is_stmt 1 view -0
+ 532              		.cfi_startproc
+ 533              		@ args = 0, pretend = 0, frame = 0
+ 534              		@ frame_needed = 0, uses_anonymous_args = 0
+ 535 0000 08B5     		push	{r3, lr}
+ 536              		.cfi_def_cfa_offset 8
+ 537              		.cfi_offset 3, -8
+ 538              		.cfi_offset 14, -4
+ 134:bsp/bsp_uart.c ****     if (USART_GetITStatus(BOARD_LINK_UART, USART_IT_RXNE) != RESET) {
+ 539              		.loc 1 134 5 view .LVU133
+ 540              		.loc 1 134 9 is_stmt 0 view .LVU134
+ 541 0002 40F22551 		movw	r1, #1317
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s 			page 14
+
+
+ 542 0006 1048     		ldr	r0, .L47
+ 543 0008 FFF7FEFF 		bl	USART_GetITStatus
+ 544              	.LVL36:
+ 545              		.loc 1 134 8 discriminator 1 view .LVU135
+ 546 000c 00B9     		cbnz	r0, .L46
+ 547              	.L42:
+ 135:bsp/bsp_uart.c ****         uint8_t byte = (uint8_t)USART_ReceiveData(BOARD_LINK_UART);
+ 136:bsp/bsp_uart.c ****         uint16_t next = (uint16_t)((s_rx_head + 1U) % BOARD_LINK_RX_BUF_SIZE);
+ 137:bsp/bsp_uart.c **** 
+ 138:bsp/bsp_uart.c ****         /* 缓冲满时丢弃新字节，保护未解析数据 */
+ 139:bsp/bsp_uart.c ****         if (next != s_rx_tail) {
+ 140:bsp/bsp_uart.c ****             s_rx_buf[s_rx_head] = byte;
+ 141:bsp/bsp_uart.c ****             s_rx_head = next;
+ 142:bsp/bsp_uart.c ****         }
+ 143:bsp/bsp_uart.c **** 
+ 144:bsp/bsp_uart.c ****         USART_ClearITPendingBit(BOARD_LINK_UART, USART_IT_RXNE);
+ 145:bsp/bsp_uart.c ****     }
+ 146:bsp/bsp_uart.c **** }
+ 548              		.loc 1 146 1 view .LVU136
+ 549 000e 08BD     		pop	{r3, pc}
+ 550              	.L46:
+ 551              	.LBB2:
+ 135:bsp/bsp_uart.c ****         uint8_t byte = (uint8_t)USART_ReceiveData(BOARD_LINK_UART);
+ 552              		.loc 1 135 9 is_stmt 1 view .LVU137
+ 135:bsp/bsp_uart.c ****         uint8_t byte = (uint8_t)USART_ReceiveData(BOARD_LINK_UART);
+ 553              		.loc 1 135 33 is_stmt 0 view .LVU138
+ 554 0010 0D48     		ldr	r0, .L47
+ 555 0012 FFF7FEFF 		bl	USART_ReceiveData
+ 556              	.LVL37:
+ 135:bsp/bsp_uart.c ****         uint8_t byte = (uint8_t)USART_ReceiveData(BOARD_LINK_UART);
+ 557              		.loc 1 135 17 discriminator 1 view .LVU139
+ 558 0016 C0B2     		uxtb	r0, r0
+ 559              	.LVL38:
+ 136:bsp/bsp_uart.c **** 
+ 560              		.loc 1 136 9 is_stmt 1 view .LVU140
+ 136:bsp/bsp_uart.c **** 
+ 561              		.loc 1 136 25 is_stmt 0 view .LVU141
+ 562 0018 0C4B     		ldr	r3, .L47+4
+ 563 001a 1B88     		ldrh	r3, [r3]
+ 564 001c 9BB2     		uxth	r3, r3
+ 565 001e 0133     		adds	r3, r3, #1
+ 136:bsp/bsp_uart.c **** 
+ 566              		.loc 1 136 18 view .LVU142
+ 567 0020 DBB2     		uxtb	r3, r3
+ 568              	.LVL39:
+ 139:bsp/bsp_uart.c ****             s_rx_buf[s_rx_head] = byte;
+ 569              		.loc 1 139 9 is_stmt 1 view .LVU143
+ 139:bsp/bsp_uart.c ****             s_rx_buf[s_rx_head] = byte;
+ 570              		.loc 1 139 18 is_stmt 0 view .LVU144
+ 571 0022 0B4A     		ldr	r2, .L47+8
+ 572 0024 1288     		ldrh	r2, [r2]
+ 573 0026 92B2     		uxth	r2, r2
+ 139:bsp/bsp_uart.c ****             s_rx_buf[s_rx_head] = byte;
+ 574              		.loc 1 139 12 view .LVU145
+ 575 0028 9A42     		cmp	r2, r3
+ 576 002a 07D0     		beq	.L44
+ 140:bsp/bsp_uart.c ****             s_rx_head = next;
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s 			page 15
+
+
+ 577              		.loc 1 140 13 is_stmt 1 view .LVU146
+ 140:bsp/bsp_uart.c ****             s_rx_head = next;
+ 578              		.loc 1 140 21 is_stmt 0 view .LVU147
+ 579 002c 0749     		ldr	r1, .L47+4
+ 580 002e 0A88     		ldrh	r2, [r1]
+ 581 0030 92B2     		uxth	r2, r2
+ 140:bsp/bsp_uart.c ****             s_rx_head = next;
+ 582              		.loc 1 140 33 view .LVU148
+ 583 0032 DFF820C0 		ldr	ip, .L47+12
+ 584 0036 0CF80200 		strb	r0, [ip, r2]
+ 141:bsp/bsp_uart.c ****         }
+ 585              		.loc 1 141 13 is_stmt 1 view .LVU149
+ 141:bsp/bsp_uart.c ****         }
+ 586              		.loc 1 141 23 is_stmt 0 view .LVU150
+ 587 003a 0B80     		strh	r3, [r1]	@ movhi
+ 588              	.L44:
+ 144:bsp/bsp_uart.c ****     }
+ 589              		.loc 1 144 9 is_stmt 1 view .LVU151
+ 590 003c 40F22551 		movw	r1, #1317
+ 591 0040 0148     		ldr	r0, .L47
+ 592              	.LVL40:
+ 144:bsp/bsp_uart.c ****     }
+ 593              		.loc 1 144 9 is_stmt 0 view .LVU152
+ 594 0042 FFF7FEFF 		bl	USART_ClearITPendingBit
+ 595              	.LVL41:
+ 144:bsp/bsp_uart.c ****     }
+ 596              		.loc 1 144 9 view .LVU153
+ 597              	.LBE2:
+ 598              		.loc 1 146 1 view .LVU154
+ 599 0046 E2E7     		b	.L42
+ 600              	.L48:
+ 601              		.align	2
+ 602              	.L47:
+ 603 0048 00380140 		.word	1073821696
+ 604 004c 00000000 		.word	s_rx_head
+ 605 0050 00000000 		.word	s_rx_tail
+ 606 0054 00000000 		.word	s_rx_buf
+ 607              		.cfi_endproc
+ 608              	.LFE37:
+ 610              		.section	.bss.s_rx_tail,"aw",%nobits
+ 611              		.align	1
+ 614              	s_rx_tail:
+ 615 0000 0000     		.space	2
+ 616              		.section	.bss.s_rx_head,"aw",%nobits
+ 617              		.align	1
+ 620              	s_rx_head:
+ 621 0000 0000     		.space	2
+ 622              		.section	.bss.s_rx_buf,"aw",%nobits
+ 623              		.align	2
+ 626              	s_rx_buf:
+ 627 0000 00000000 		.space	256
+ 627      00000000 
+ 627      00000000 
+ 627      00000000 
+ 627      00000000 
+ 628              		.text
+ 629              	.Letext0:
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s 			page 16
+
+
+ 630              		.file 2 "D:/Microsoft VS code/stm32tools/@xpack-dev-tools/arm-none-eabi-gcc/15.2.1-1.1.1/.content/
+ 631              		.file 3 "D:/Microsoft VS code/stm32tools/@xpack-dev-tools/arm-none-eabi-gcc/15.2.1-1.1.1/.content/
+ 632              		.file 4 "Drivers/CMSIS/stm32f10x.h"
+ 633              		.file 5 "Drivers/STM32F10x_StdPeriph_Driver/inc/stm32f10x_gpio.h"
+ 634              		.file 6 "Drivers/STM32F10x_StdPeriph_Driver/inc/stm32f10x_usart.h"
+ 635              		.file 7 "Drivers/STM32F10x_StdPeriph_Driver/inc/misc.h"
+ 636              		.file 8 "Drivers/STM32F10x_StdPeriph_Driver/inc/stm32f10x_rcc.h"
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s 			page 17
+
+
+DEFINED SYMBOLS
+                            *ABS*:00000000 bsp_uart.c
+C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s:19     .text.BSP_UART_IndexAt:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s:24     .text.BSP_UART_IndexAt:00000000 BSP_UART_IndexAt
+C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s:61     .text.BSP_UART_IndexAt:00000018 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s:614    .bss.s_rx_tail:00000000 s_rx_tail
+C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s:66     .text.BSP_UART_Init:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s:72     .text.BSP_UART_Init:00000000 BSP_UART_Init
+C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s:194    .text.BSP_UART_Init:000000a8 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s:199    .text.BSP_UART_SendByte:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s:205    .text.BSP_UART_SendByte:00000000 BSP_UART_SendByte
+C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s:241    .text.BSP_UART_SendByte:00000018 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s:246    .text.BSP_UART_SendString:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s:252    .text.BSP_UART_SendString:00000000 BSP_UART_SendString
+C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s:293    .text.BSP_UART_GetRxCount:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s:299    .text.BSP_UART_GetRxCount:00000000 BSP_UART_GetRxCount
+C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s:345    .text.BSP_UART_GetRxCount:00000024 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s:620    .bss.s_rx_head:00000000 s_rx_head
+C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s:351    .text.BSP_UART_PeekAt:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s:357    .text.BSP_UART_PeekAt:00000000 BSP_UART_PeekAt
+C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s:410    .text.BSP_UART_PeekAt:00000028 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s:626    .bss.s_rx_buf:00000000 s_rx_buf
+C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s:415    .text.BSP_UART_Skip:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s:421    .text.BSP_UART_Skip:00000000 BSP_UART_Skip
+C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s:457    .text.BSP_UART_Skip:00000018 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s:462    .text.BSP_UART_ReadByte:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s:468    .text.BSP_UART_ReadByte:00000000 BSP_UART_ReadByte
+C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s:516    .text.BSP_UART_ReadByte:0000002c $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s:523    .text.USART1_IRQHandler:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s:529    .text.USART1_IRQHandler:00000000 USART1_IRQHandler
+C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s:603    .text.USART1_IRQHandler:00000048 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s:611    .bss.s_rx_tail:00000000 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s:617    .bss.s_rx_head:00000000 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccfljjto.s:623    .bss.s_rx_buf:00000000 $d
+
+UNDEFINED SYMBOLS
+RCC_APB2PeriphClockCmd
+GPIO_Init
+USART_Init
+USART_ITConfig
+USART_Cmd
+NVIC_Init
+USART_SendData
+USART_GetFlagStatus
+USART_GetITStatus
+USART_ReceiveData
+USART_ClearITPendingBit

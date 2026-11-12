@@ -1,0 +1,1911 @@
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 1
+
+
+   1              		.cpu cortex-m3
+   2              		.arch armv7-m
+   3              		.fpu softvfp
+   4              		.eabi_attribute 20, 1
+   5              		.eabi_attribute 21, 1
+   6              		.eabi_attribute 23, 3
+   7              		.eabi_attribute 24, 1
+   8              		.eabi_attribute 25, 1
+   9              		.eabi_attribute 26, 1
+  10              		.eabi_attribute 30, 1
+  11              		.eabi_attribute 34, 1
+  12              		.eabi_attribute 18, 4
+  13              		.file	"chassis_task.c"
+  14              		.text
+  15              	.Ltext0:
+  16              		.cfi_sections	.debug_frame
+  17              		.file 1 "application/chassis_task.c"
+  18              		.section	.text.ChassisTask_PollKey,"ax",%progbits
+  19              		.align	1
+  20              		.syntax unified
+  21              		.thumb
+  22              		.thumb_func
+  24              	ChassisTask_PollKey:
+  25              	.LVL0:
+  26              	.LFB34:
+   1:application/chassis_task.c **** #include "chassis_task.h"
+   2:application/chassis_task.c **** 
+   3:application/chassis_task.c **** #include <stddef.h>
+   4:application/chassis_task.c **** #include <stdio.h>
+   5:application/chassis_task.c **** 
+   6:application/chassis_task.c **** #include "bsp_encoder.h"
+   7:application/chassis_task.c **** #include "bsp_key.h"
+   8:application/chassis_task.c **** #include "bsp_uart.h"
+   9:application/chassis_task.c **** #include "chassis_config.h"
+  10:application/chassis_task.c **** #include "Delay.h"
+  11:application/chassis_task.c **** #include "distance_sensor.h"
+  12:application/chassis_task.c **** #include "line_sensor.h"
+  13:application/chassis_task.c **** #include "motor_driver.h"
+  14:application/chassis_task.c **** #include "oled.h"
+  15:application/chassis_task.c **** #include "vision_link.h"
+  16:application/chassis_task.c **** 
+  17:application/chassis_task.c **** /* 当前模式 */
+  18:application/chassis_task.c **** static ChassisMode_t s_mode = CHASSIS_MODE_LINE_TRACK;
+  19:application/chassis_task.c **** 
+  20:application/chassis_task.c **** /* 节流基准 */
+  21:application/chassis_task.c **** static uint32_t s_last_display_ms = 0U;
+  22:application/chassis_task.c **** static uint32_t s_last_debug_ms = 0U;
+  23:application/chassis_task.c **** 
+  24:application/chassis_task.c **** /* 按键消抖状态 */
+  25:application/chassis_task.c **** static uint8_t s_key_last_raw = 0U;
+  26:application/chassis_task.c **** static uint8_t s_key_stable_down = 0U;
+  27:application/chassis_task.c **** static uint32_t s_key_last_change_ms = 0U;
+  28:application/chassis_task.c **** 
+  29:application/chassis_task.c **** /* --------------------------------------------------------- 内部：模式逻辑 -- */
+  30:application/chassis_task.c **** 
+  31:application/chassis_task.c **** /* 模式 1：循迹 + 云台跟踪（本板只做循迹）
+  32:application/chassis_task.c ****  *
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 2
+
+
+  33:application/chassis_task.c ****  * ⚠️ 按任务要求「循迹代码先空着」：判线算法与转向律都还没实现，
+  34:application/chassis_task.c ****  *    这里保持停车，不做任何驱动。判线实现在 modules/line_sensor.c。 */
+  35:application/chassis_task.c **** static void ChassisTask_UpdateLineTrack(void)
+  36:application/chassis_task.c **** {
+  37:application/chassis_task.c ****     /* TODO(循迹实现时)：
+  38:application/chassis_task.c ****      *   1) 若 LineSensor 报告脱线 -> Motor_SetSpeed(0, 0) 并原地等待；
+  39:application/chassis_task.c ****      *   2) 否则按线位置计算差速（注意左右轮方向的实测验证）；
+  40:application/chassis_task.c ****      *   3) 输出必须限幅，并依赖 Motor_SetSpeed 内部的斜率限制。
+  41:application/chassis_task.c ****      *
+  42:application/chassis_task.c ****      * 现在：保持停车。 */
+  43:application/chassis_task.c ****     Motor_SetSpeed(0, 0);
+  44:application/chassis_task.c **** }
+  45:application/chassis_task.c **** 
+  46:application/chassis_task.c **** /* 模式 2：纯人体跟随
+  47:application/chassis_task.c ****  *
+  48:application/chassis_task.c ****  * 两路互相独立的输入合成差速：
+  49:application/chassis_task.c ****  *
+  50:application/chassis_task.c ****  *   转向  <- 云台 yaw 偏角      「云台往哪边转，车就往哪边转」
+  51:application/chassis_task.c ****  *   前后  <- 超声波距离闭环      「保持设定车距：太远前进，太近后退」
+  52:application/chassis_task.c ****  *
+  53:application/chassis_task.c ****  *   left  = 前后 + 转向
+  54:application/chassis_task.c ****  *   right = 前后 - 转向
+  55:application/chassis_task.c ****  *
+  56:application/chassis_task.c ****  * 转向用偏角而不是画面偏差，是因为云台一直把人保持在画面中心，
+  57:application/chassis_task.c ****  * 画面偏差恒接近 0（详见 ../docs/双板分工与协议.md）。
+  58:application/chassis_task.c ****  */
+  59:application/chassis_task.c **** static void ChassisTask_UpdateFollow(void)
+  60:application/chassis_task.c **** {
+  61:application/chassis_task.c ****     VisionLink_t link;
+  62:application/chassis_task.c ****     int16_t dev_tenth;
+  63:application/chassis_task.c ****     int32_t steer;
+  64:application/chassis_task.c ****     int32_t forward_speed = 0;
+  65:application/chassis_task.c ****     int32_t left;
+  66:application/chassis_task.c ****     int32_t right;
+  67:application/chassis_task.c ****     const int32_t speed_max = (int32_t)CHASSIS_FOLLOW_SPEED_MAX;
+  68:application/chassis_task.c ****     const int32_t duty_max = (int32_t)CHASSIS_MOTOR_DUTY_MAX;
+  69:application/chassis_task.c **** 
+  70:application/chassis_task.c ****     /* ---------- 1. 人丢了 / 链路断：停车等待 ---------- */
+  71:application/chassis_task.c ****     if (VisionLink_IsFresh() == 0U) {
+  72:application/chassis_task.c ****         Motor_SetSpeed(0, 0);
+  73:application/chassis_task.c ****         return;
+  74:application/chassis_task.c ****     }
+  75:application/chassis_task.c **** 
+  76:application/chassis_task.c ****     /* ---------- 2. 转向：云台偏角 ---------- */
+  77:application/chassis_task.c ****     link = VisionLink_Get();
+  78:application/chassis_task.c ****     dev_tenth = link.yaw_dev_tenth_deg;
+  79:application/chassis_task.c **** 
+  80:application/chassis_task.c ****     /* 死区：云台微抖不该让车摆头 */
+  81:application/chassis_task.c ****     if (dev_tenth > (int16_t)CHASSIS_FOLLOW_STEER_DEADBAND_TENTH_DEG) {
+  82:application/chassis_task.c ****         dev_tenth = (int16_t)(dev_tenth - (int16_t)CHASSIS_FOLLOW_STEER_DEADBAND_TENTH_DEG);
+  83:application/chassis_task.c ****     } else if (dev_tenth < -(int16_t)CHASSIS_FOLLOW_STEER_DEADBAND_TENTH_DEG) {
+  84:application/chassis_task.c ****         dev_tenth = (int16_t)(dev_tenth + (int16_t)CHASSIS_FOLLOW_STEER_DEADBAND_TENTH_DEG);
+  85:application/chassis_task.c ****     } else {
+  86:application/chassis_task.c ****         dev_tenth = 0;
+  87:application/chassis_task.c ****     }
+  88:application/chassis_task.c **** 
+  89:application/chassis_task.c ****     /* 0.1 度 × (千分比/度) / 10 = 千分比 */
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 3
+
+
+  90:application/chassis_task.c ****     steer = ((int32_t)dev_tenth * (int32_t)CHASSIS_FOLLOW_STEER_GAIN_Q) / 10;
+  91:application/chassis_task.c ****     steer = steer * (int32_t)CHASSIS_FOLLOW_STEER_SIGN;
+  92:application/chassis_task.c **** 
+  93:application/chassis_task.c ****     if (steer > duty_max) {
+  94:application/chassis_task.c ****         steer = duty_max;
+  95:application/chassis_task.c ****     }
+  96:application/chassis_task.c ****     if (steer < -duty_max) {
+  97:application/chassis_task.c ****         steer = -duty_max;
+  98:application/chassis_task.c ****     }
+  99:application/chassis_task.c **** 
+ 100:application/chassis_task.c ****     /* ---------- 3. 前后：超声波距离闭环 ---------- */
+ 101:application/chassis_task.c ****     if (DistanceSensor_IsValid() != 0U) {
+ 102:application/chassis_task.c ****         int32_t error_cm = (int32_t)DistanceSensor_GetCm()
+ 103:application/chassis_task.c ****                          - (int32_t)CHASSIS_FOLLOW_TARGET_DISTANCE_CM;
+ 104:application/chassis_task.c ****         const int32_t deadband_cm = (int32_t)CHASSIS_FOLLOW_DISTANCE_DEADBAND_CM;
+ 105:application/chassis_task.c **** 
+ 106:application/chassis_task.c ****         /* 距离死区：差在范围内就不前后动，避免原地来回蹭 */
+ 107:application/chassis_task.c ****         if (error_cm > deadband_cm) {
+ 108:application/chassis_task.c ****             error_cm -= deadband_cm;
+ 109:application/chassis_task.c ****         } else if (error_cm < -deadband_cm) {
+ 110:application/chassis_task.c ****             error_cm += deadband_cm;
+ 111:application/chassis_task.c ****         } else {
+ 112:application/chassis_task.c ****             error_cm = 0;
+ 113:application/chassis_task.c ****         }
+ 114:application/chassis_task.c **** 
+ 115:application/chassis_task.c ****         /* 千分比/cm × cm = 千分比；正 = 太远 = 前进，负 = 太近 = 后退 */
+ 116:application/chassis_task.c ****         forward_speed = error_cm * (int32_t)CHASSIS_FOLLOW_DISTANCE_GAIN_Q;
+ 117:application/chassis_task.c **** 
+ 118:application/chassis_task.c ****         if (forward_speed > speed_max) {
+ 119:application/chassis_task.c ****             forward_speed = speed_max;
+ 120:application/chassis_task.c ****         }
+ 121:application/chassis_task.c ****         if (forward_speed < -speed_max) {
+ 122:application/chassis_task.c ****             forward_speed = -speed_max;
+ 123:application/chassis_task.c ****         }
+ 124:application/chassis_task.c ****     } else {
+ 125:application/chassis_task.c **** #if (CHASSIS_FOLLOW_REQUIRE_DISTANCE != 0)
+ 126:application/chassis_task.c ****         /* 测不到有效距离：既不会前进也不会后退，直接停。
+ 127:application/chassis_task.c ****          * 这里不「只转向不前进」—— 差速会让车原地打转，反而危险。 */
+ 128:application/chassis_task.c ****         Motor_SetSpeed(0, 0);
+ 129:application/chassis_task.c ****         return;
+ 130:application/chassis_task.c **** #else
+ 131:application/chassis_task.c ****         /* 退化成定速前进（仅调试用） */
+ 132:application/chassis_task.c ****         forward_speed = (int32_t)CHASSIS_FOLLOW_BASE_SPEED;
+ 133:application/chassis_task.c **** #endif
+ 134:application/chassis_task.c ****     }
+ 135:application/chassis_task.c **** 
+ 136:application/chassis_task.c ****     /* ---------- 4. 合成差速 ---------- */
+ 137:application/chassis_task.c ****     left = forward_speed + steer;
+ 138:application/chassis_task.c ****     right = forward_speed - steer;
+ 139:application/chassis_task.c **** 
+ 140:application/chassis_task.c ****     /* 允许为负：太近时要能倒车。但仍要夹在硬件限幅内。 */
+ 141:application/chassis_task.c ****     if (left > duty_max) {
+ 142:application/chassis_task.c ****         left = duty_max;
+ 143:application/chassis_task.c ****     }
+ 144:application/chassis_task.c ****     if (left < -duty_max) {
+ 145:application/chassis_task.c ****         left = -duty_max;
+ 146:application/chassis_task.c ****     }
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 4
+
+
+ 147:application/chassis_task.c ****     if (right > duty_max) {
+ 148:application/chassis_task.c ****         right = duty_max;
+ 149:application/chassis_task.c ****     }
+ 150:application/chassis_task.c ****     if (right < -duty_max) {
+ 151:application/chassis_task.c ****         right = -duty_max;
+ 152:application/chassis_task.c ****     }
+ 153:application/chassis_task.c **** 
+ 154:application/chassis_task.c ****     Motor_SetSpeed((int16_t)left, (int16_t)right);
+ 155:application/chassis_task.c **** }
+ 156:application/chassis_task.c **** 
+ 157:application/chassis_task.c **** /* ------------------------------------------------------------ 内部：按键 -- */
+ 158:application/chassis_task.c **** 
+ 159:application/chassis_task.c **** static void ChassisTask_PollKey(uint32_t now_ms)
+ 160:application/chassis_task.c **** {
+  27              		.loc 1 160 1 view -0
+  28              		.cfi_startproc
+  29              		@ args = 0, pretend = 0, frame = 0
+  30              		@ frame_needed = 0, uses_anonymous_args = 0
+  31              		.loc 1 160 1 is_stmt 0 view .LVU1
+  32 0000 10B5     		push	{r4, lr}
+  33              		.cfi_def_cfa_offset 8
+  34              		.cfi_offset 4, -8
+  35              		.cfi_offset 14, -4
+  36 0002 0446     		mov	r4, r0
+ 161:application/chassis_task.c ****     uint8_t down = BSP_Key_IsDown(BSP_KEY_MODE);
+  37              		.loc 1 161 5 is_stmt 1 view .LVU2
+  38              		.loc 1 161 20 is_stmt 0 view .LVU3
+  39 0004 0020     		movs	r0, #0
+  40              	.LVL1:
+  41              		.loc 1 161 20 view .LVU4
+  42 0006 FFF7FEFF 		bl	BSP_Key_IsDown
+  43              	.LVL2:
+ 162:application/chassis_task.c **** 
+ 163:application/chassis_task.c ****     if (down != s_key_last_raw) {
+  44              		.loc 1 163 5 is_stmt 1 view .LVU5
+  45              		.loc 1 163 14 is_stmt 0 view .LVU6
+  46 000a 124B     		ldr	r3, .L8
+  47 000c 1B78     		ldrb	r3, [r3]	@ zero_extendqisi2
+  48              		.loc 1 163 8 view .LVU7
+  49 000e 8342     		cmp	r3, r0
+  50 0010 04D0     		beq	.L2
+ 164:application/chassis_task.c ****         s_key_last_raw = down;
+  51              		.loc 1 164 9 is_stmt 1 view .LVU8
+  52              		.loc 1 164 24 is_stmt 0 view .LVU9
+  53 0012 104B     		ldr	r3, .L8
+  54 0014 1870     		strb	r0, [r3]
+ 165:application/chassis_task.c ****         s_key_last_change_ms = now_ms;
+  55              		.loc 1 165 9 is_stmt 1 view .LVU10
+  56              		.loc 1 165 30 is_stmt 0 view .LVU11
+  57 0016 104B     		ldr	r3, .L8+4
+  58 0018 1C60     		str	r4, [r3]
+ 166:application/chassis_task.c ****         return;
+  59              		.loc 1 166 9 is_stmt 1 view .LVU12
+  60              	.LVL3:
+  61              	.L1:
+ 167:application/chassis_task.c ****     }
+ 168:application/chassis_task.c **** 
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 5
+
+
+ 169:application/chassis_task.c ****     if ((uint32_t)(now_ms - s_key_last_change_ms) < CHASSIS_KEY_DEBOUNCE_MS) {
+ 170:application/chassis_task.c ****         return;
+ 171:application/chassis_task.c ****     }
+ 172:application/chassis_task.c **** 
+ 173:application/chassis_task.c ****     if (down != 0U) {
+ 174:application/chassis_task.c ****         if (s_key_stable_down == 0U) {
+ 175:application/chassis_task.c ****             s_key_stable_down = 1U;
+ 176:application/chassis_task.c **** 
+ 177:application/chassis_task.c ****             if (s_mode == CHASSIS_MODE_LINE_TRACK) {
+ 178:application/chassis_task.c ****                 s_mode = CHASSIS_MODE_FOLLOW;
+ 179:application/chassis_task.c ****             } else {
+ 180:application/chassis_task.c ****                 s_mode = CHASSIS_MODE_LINE_TRACK;
+ 181:application/chassis_task.c ****             }
+ 182:application/chassis_task.c **** 
+ 183:application/chassis_task.c ****             /* 切模式瞬间先停车，避免带着上一个模式的输出冲出去 */
+ 184:application/chassis_task.c ****             Motor_Stop();
+ 185:application/chassis_task.c ****         }
+ 186:application/chassis_task.c ****     } else {
+ 187:application/chassis_task.c ****         s_key_stable_down = 0U;
+ 188:application/chassis_task.c ****     }
+ 189:application/chassis_task.c **** }
+  62              		.loc 1 189 1 is_stmt 0 view .LVU13
+  63 001a 10BD     		pop	{r4, pc}
+  64              	.LVL4:
+  65              	.L2:
+ 169:application/chassis_task.c ****         return;
+  66              		.loc 1 169 5 is_stmt 1 view .LVU14
+ 169:application/chassis_task.c ****         return;
+  67              		.loc 1 169 27 is_stmt 0 view .LVU15
+  68 001c 0E4B     		ldr	r3, .L8+4
+  69 001e 1B68     		ldr	r3, [r3]
+  70 0020 E31A     		subs	r3, r4, r3
+ 169:application/chassis_task.c ****         return;
+  71              		.loc 1 169 8 view .LVU16
+  72 0022 132B     		cmp	r3, #19
+  73 0024 F9D9     		bls	.L1
+ 173:application/chassis_task.c ****         if (s_key_stable_down == 0U) {
+  74              		.loc 1 173 5 is_stmt 1 view .LVU17
+ 173:application/chassis_task.c ****         if (s_key_stable_down == 0U) {
+  75              		.loc 1 173 8 is_stmt 0 view .LVU18
+  76 0026 90B1     		cbz	r0, .L4
+ 174:application/chassis_task.c ****             s_key_stable_down = 1U;
+  77              		.loc 1 174 9 is_stmt 1 view .LVU19
+ 174:application/chassis_task.c ****             s_key_stable_down = 1U;
+  78              		.loc 1 174 31 is_stmt 0 view .LVU20
+  79 0028 0C4B     		ldr	r3, .L8+8
+  80 002a 1B78     		ldrb	r3, [r3]	@ zero_extendqisi2
+ 174:application/chassis_task.c ****             s_key_stable_down = 1U;
+  81              		.loc 1 174 12 view .LVU21
+  82 002c 002B     		cmp	r3, #0
+  83 002e F4D1     		bne	.L1
+ 175:application/chassis_task.c **** 
+  84              		.loc 1 175 13 is_stmt 1 view .LVU22
+ 175:application/chassis_task.c **** 
+  85              		.loc 1 175 31 is_stmt 0 view .LVU23
+  86 0030 0A4B     		ldr	r3, .L8+8
+  87 0032 0122     		movs	r2, #1
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 6
+
+
+  88 0034 1A70     		strb	r2, [r3]
+ 177:application/chassis_task.c ****                 s_mode = CHASSIS_MODE_FOLLOW;
+  89              		.loc 1 177 13 is_stmt 1 view .LVU24
+ 177:application/chassis_task.c ****                 s_mode = CHASSIS_MODE_FOLLOW;
+  90              		.loc 1 177 24 is_stmt 0 view .LVU25
+  91 0036 0A4B     		ldr	r3, .L8+12
+  92 0038 1B78     		ldrb	r3, [r3]	@ zero_extendqisi2
+ 177:application/chassis_task.c ****                 s_mode = CHASSIS_MODE_FOLLOW;
+  93              		.loc 1 177 16 view .LVU26
+  94 003a 23B9     		cbnz	r3, .L5
+ 178:application/chassis_task.c ****             } else {
+  95              		.loc 1 178 17 is_stmt 1 view .LVU27
+ 178:application/chassis_task.c ****             } else {
+  96              		.loc 1 178 24 is_stmt 0 view .LVU28
+  97 003c 084B     		ldr	r3, .L8+12
+  98 003e 1A70     		strb	r2, [r3]
+  99              	.L6:
+ 184:application/chassis_task.c ****         }
+ 100              		.loc 1 184 13 is_stmt 1 view .LVU29
+ 101 0040 FFF7FEFF 		bl	Motor_Stop
+ 102              	.LVL5:
+ 184:application/chassis_task.c ****         }
+ 103              		.loc 1 184 13 is_stmt 0 view .LVU30
+ 104 0044 E9E7     		b	.L1
+ 105              	.LVL6:
+ 106              	.L5:
+ 180:application/chassis_task.c ****             }
+ 107              		.loc 1 180 17 is_stmt 1 view .LVU31
+ 180:application/chassis_task.c ****             }
+ 108              		.loc 1 180 24 is_stmt 0 view .LVU32
+ 109 0046 064B     		ldr	r3, .L8+12
+ 110 0048 0022     		movs	r2, #0
+ 111 004a 1A70     		strb	r2, [r3]
+ 112 004c F8E7     		b	.L6
+ 113              	.L4:
+ 187:application/chassis_task.c ****     }
+ 114              		.loc 1 187 9 is_stmt 1 view .LVU33
+ 187:application/chassis_task.c ****     }
+ 115              		.loc 1 187 27 is_stmt 0 view .LVU34
+ 116 004e 034B     		ldr	r3, .L8+8
+ 117 0050 1870     		strb	r0, [r3]
+ 118 0052 E2E7     		b	.L1
+ 119              	.L9:
+ 120              		.align	2
+ 121              	.L8:
+ 122 0054 00000000 		.word	s_key_last_raw
+ 123 0058 00000000 		.word	s_key_last_change_ms
+ 124 005c 00000000 		.word	s_key_stable_down
+ 125 0060 00000000 		.word	s_mode
+ 126              		.cfi_endproc
+ 127              	.LFE34:
+ 129              		.section	.text.ChassisTask_ShowPaddedLine,"ax",%progbits
+ 130              		.align	1
+ 131              		.syntax unified
+ 132              		.thumb
+ 133              		.thumb_func
+ 135              	ChassisTask_ShowPaddedLine:
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 7
+
+
+ 136              	.LVL7:
+ 137              	.LFB35:
+ 190:application/chassis_task.c **** 
+ 191:application/chassis_task.c **** /* ------------------------------------------------------------ 内部：显示 -- */
+ 192:application/chassis_task.c **** 
+ 193:application/chassis_task.c **** /* 把 text 补空格到 16 列后整行写出，避免切换模式时残留旧字符 */
+ 194:application/chassis_task.c **** static void ChassisTask_ShowPaddedLine(uint8_t line, const char *text)
+ 195:application/chassis_task.c **** {
+ 138              		.loc 1 195 1 is_stmt 1 view -0
+ 139              		.cfi_startproc
+ 140              		@ args = 0, pretend = 0, frame = 24
+ 141              		@ frame_needed = 0, uses_anonymous_args = 0
+ 142              		.loc 1 195 1 is_stmt 0 view .LVU36
+ 143 0000 00B5     		push	{lr}
+ 144              		.cfi_def_cfa_offset 4
+ 145              		.cfi_offset 14, -4
+ 146 0002 87B0     		sub	sp, sp, #28
+ 147              		.cfi_def_cfa_offset 32
+ 196:application/chassis_task.c ****     char buffer[17];
+ 148              		.loc 1 196 5 is_stmt 1 view .LVU37
+ 197:application/chassis_task.c ****     uint8_t i = 0U;
+ 149              		.loc 1 197 5 view .LVU38
+ 150              	.LVL8:
+ 198:application/chassis_task.c **** 
+ 199:application/chassis_task.c ****     while (text[i] != '\0' && i < 16U) {
+ 151              		.loc 1 199 5 view .LVU39
+ 197:application/chassis_task.c ****     uint8_t i = 0U;
+ 152              		.loc 1 197 13 is_stmt 0 view .LVU40
+ 153 0004 0023     		movs	r3, #0
+ 154              	.LVL9:
+ 155              	.L11:
+ 156              		.loc 1 199 28 is_stmt 1 view .LVU41
+ 157              		.loc 1 199 16 is_stmt 0 view .LVU42
+ 158 0006 CA5C     		ldrb	r2, [r1, r3]	@ zero_extendqisi2
+ 159              		.loc 1 199 28 view .LVU43
+ 160 0008 4AB1     		cbz	r2, .L14
+ 161              		.loc 1 199 28 discriminator 1 view .LVU44
+ 162 000a 0F2B     		cmp	r3, #15
+ 163 000c 07D8     		bhi	.L14
+ 200:application/chassis_task.c ****         buffer[i] = text[i];
+ 164              		.loc 1 200 9 is_stmt 1 view .LVU45
+ 165              		.loc 1 200 19 is_stmt 0 view .LVU46
+ 166 000e 03F1180C 		add	ip, r3, #24
+ 167 0012 EC44     		add	ip, sp, ip
+ 168 0014 0CF8142C 		strb	r2, [ip, #-20]
+ 201:application/chassis_task.c ****         i++;
+ 169              		.loc 1 201 9 is_stmt 1 view .LVU47
+ 170              		.loc 1 201 10 is_stmt 0 view .LVU48
+ 171 0018 0133     		adds	r3, r3, #1
+ 172              	.LVL10:
+ 173              		.loc 1 201 10 view .LVU49
+ 174 001a DBB2     		uxtb	r3, r3
+ 175              	.LVL11:
+ 176              		.loc 1 201 10 view .LVU50
+ 177 001c F3E7     		b	.L11
+ 178              	.LVL12:
+ 179              	.L14:
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 8
+
+
+ 202:application/chassis_task.c ****     }
+ 203:application/chassis_task.c ****     while (i < 16U) {
+ 180              		.loc 1 203 14 is_stmt 1 view .LVU51
+ 181 001e 0F2B     		cmp	r3, #15
+ 182 0020 08D8     		bhi	.L17
+ 204:application/chassis_task.c ****         buffer[i] = ' ';
+ 183              		.loc 1 204 9 view .LVU52
+ 184              		.loc 1 204 19 is_stmt 0 view .LVU53
+ 185 0022 03F11802 		add	r2, r3, #24
+ 186 0026 6A44     		add	r2, sp, r2
+ 187 0028 2021     		movs	r1, #32
+ 188 002a 02F8141C 		strb	r1, [r2, #-20]
+ 205:application/chassis_task.c ****         i++;
+ 189              		.loc 1 205 9 is_stmt 1 view .LVU54
+ 190              		.loc 1 205 10 is_stmt 0 view .LVU55
+ 191 002e 0133     		adds	r3, r3, #1
+ 192              	.LVL13:
+ 193              		.loc 1 205 10 view .LVU56
+ 194 0030 DBB2     		uxtb	r3, r3
+ 195              	.LVL14:
+ 196              		.loc 1 205 10 view .LVU57
+ 197 0032 F4E7     		b	.L14
+ 198              	.LVL15:
+ 199              	.L17:
+ 206:application/chassis_task.c ****     }
+ 207:application/chassis_task.c ****     buffer[16] = '\0';
+ 200              		.loc 1 207 5 is_stmt 1 view .LVU58
+ 201              		.loc 1 207 16 is_stmt 0 view .LVU59
+ 202 0034 0023     		movs	r3, #0
+ 203              	.LVL16:
+ 204              		.loc 1 207 16 view .LVU60
+ 205 0036 8DF81430 		strb	r3, [sp, #20]
+ 208:application/chassis_task.c **** 
+ 209:application/chassis_task.c ****     OLED_ShowString(line, 1U, buffer);
+ 206              		.loc 1 209 5 is_stmt 1 view .LVU61
+ 207 003a 01AA     		add	r2, sp, #4
+ 208 003c 0121     		movs	r1, #1
+ 209 003e FFF7FEFF 		bl	OLED_ShowString
+ 210              	.LVL17:
+ 210:application/chassis_task.c **** }
+ 211              		.loc 1 210 1 is_stmt 0 view .LVU62
+ 212 0042 07B0     		add	sp, sp, #28
+ 213              		.cfi_def_cfa_offset 4
+ 214              		@ sp needed
+ 215 0044 00BD     		pop	{pc}
+ 216              		.cfi_endproc
+ 217              	.LFE35:
+ 219              		.section	.rodata.ChassisTask_RefreshDisplay.str1.4,"aMS",%progbits,1
+ 220              		.align	2
+ 221              	.LC0:
+ 222 0000 4D6F6465 		.ascii	"Mode:LINE OK\000"
+ 222      3A4C494E 
+ 222      45204F4B 
+ 222      00
+ 223 000d 000000   		.align	2
+ 224              	.LC1:
+ 225 0010 4D6F6465 		.ascii	"Mode:LINE --\000"
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 9
+
+
+ 225      3A4C494E 
+ 225      45202D2D 
+ 225      00
+ 226 001d 000000   		.align	2
+ 227              	.LC2:
+ 228 0020 4D6F6465 		.ascii	"Mode:FOLL OK\000"
+ 228      3A464F4C 
+ 228      4C204F4B 
+ 228      00
+ 229 002d 000000   		.align	2
+ 230              	.LC3:
+ 231 0030 4D6F6465 		.ascii	"Mode:FOLL --\000"
+ 231      3A464F4C 
+ 231      4C202D2D 
+ 231      00
+ 232 003d 000000   		.align	2
+ 233              	.LC4:
+ 234 0040 4465763A 		.ascii	"Dev:%+04d\000"
+ 234      252B3034 
+ 234      6400
+ 235 004a 0000     		.align	2
+ 236              	.LC5:
+ 237 004c 44697374 		.ascii	"Dist:%03ucm\000"
+ 237      3A253033 
+ 237      75636D00 
+ 238              		.align	2
+ 239              	.LC6:
+ 240 0058 44697374 		.ascii	"Dist:---cm\000"
+ 240      3A2D2D2D 
+ 240      636D00
+ 241 0063 00       		.align	2
+ 242              	.LC7:
+ 243 0064 4C3A00   		.ascii	"L:\000"
+ 244 0067 00       		.align	2
+ 245              	.LC8:
+ 246 0068 523A00   		.ascii	"R:\000"
+ 247              		.section	.text.ChassisTask_RefreshDisplay,"ax",%progbits
+ 248              		.align	1
+ 249              		.syntax unified
+ 250              		.thumb
+ 251              		.thumb_func
+ 253              	ChassisTask_RefreshDisplay:
+ 254              	.LFB36:
+ 211:application/chassis_task.c **** 
+ 212:application/chassis_task.c **** static void ChassisTask_RefreshDisplay(void)
+ 213:application/chassis_task.c **** {
+ 255              		.loc 1 213 1 is_stmt 1 view -0
+ 256              		.cfi_startproc
+ 257              		@ args = 0, pretend = 0, frame = 32
+ 258              		@ frame_needed = 0, uses_anonymous_args = 0
+ 259 0000 10B5     		push	{r4, lr}
+ 260              		.cfi_def_cfa_offset 8
+ 261              		.cfi_offset 4, -8
+ 262              		.cfi_offset 14, -4
+ 263 0002 88B0     		sub	sp, sp, #32
+ 264              		.cfi_def_cfa_offset 40
+ 214:application/chassis_task.c ****     char text[17];
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 10
+
+
+ 265              		.loc 1 214 5 view .LVU64
+ 215:application/chassis_task.c **** 
+ 216:application/chassis_task.c ****     /* ---------- 第 1 行：模式 + 链路状态 ---------- */
+ 217:application/chassis_task.c ****     if (s_mode == CHASSIS_MODE_LINE_TRACK) {
+ 266              		.loc 1 217 5 view .LVU65
+ 267              		.loc 1 217 16 is_stmt 0 view .LVU66
+ 268 0004 474B     		ldr	r3, .L33
+ 269 0006 1B78     		ldrb	r3, [r3]	@ zero_extendqisi2
+ 270              		.loc 1 217 8 view .LVU67
+ 271 0008 FBB9     		cbnz	r3, .L19
+ 218:application/chassis_task.c ****         if (VisionLink_IsFresh() != 0U) {
+ 272              		.loc 1 218 9 is_stmt 1 view .LVU68
+ 273              		.loc 1 218 13 is_stmt 0 view .LVU69
+ 274 000a FFF7FEFF 		bl	VisionLink_IsFresh
+ 275              	.LVL18:
+ 276              		.loc 1 218 12 discriminator 1 view .LVU70
+ 277 000e B8B1     		cbz	r0, .L20
+ 219:application/chassis_task.c ****             ChassisTask_ShowPaddedLine(1U, "Mode:LINE OK");
+ 278              		.loc 1 219 13 is_stmt 1 view .LVU71
+ 279 0010 4549     		ldr	r1, .L33+4
+ 280 0012 0120     		movs	r0, #1
+ 281 0014 FFF7FEFF 		bl	ChassisTask_ShowPaddedLine
+ 282              	.LVL19:
+ 283              	.L21:
+ 220:application/chassis_task.c ****         } else {
+ 221:application/chassis_task.c ****             ChassisTask_ShowPaddedLine(1U, "Mode:LINE --");
+ 222:application/chassis_task.c ****         }
+ 223:application/chassis_task.c ****     } else {
+ 224:application/chassis_task.c ****         if (VisionLink_IsFresh() != 0U) {
+ 225:application/chassis_task.c ****             ChassisTask_ShowPaddedLine(1U, "Mode:FOLL OK");
+ 226:application/chassis_task.c ****         } else {
+ 227:application/chassis_task.c ****             ChassisTask_ShowPaddedLine(1U, "Mode:FOLL --");
+ 228:application/chassis_task.c ****         }
+ 229:application/chassis_task.c ****     }
+ 230:application/chassis_task.c **** 
+ 231:application/chassis_task.c ****     /* ---------- 第 2 行：模式相关 ---------- */
+ 232:application/chassis_task.c ****     if (s_mode == CHASSIS_MODE_LINE_TRACK) {
+ 284              		.loc 1 232 5 view .LVU72
+ 285              		.loc 1 232 16 is_stmt 0 view .LVU73
+ 286 0018 424B     		ldr	r3, .L33
+ 287 001a 1C78     		ldrb	r4, [r3]	@ zero_extendqisi2
+ 288              		.loc 1 232 8 view .LVU74
+ 289 001c 002C     		cmp	r4, #0
+ 290 001e 65D1     		bne	.L23
+ 291              	.LBB2:
+ 233:application/chassis_task.c ****         LineSensor_t line = LineSensor_Get();
+ 292              		.loc 1 233 9 is_stmt 1 view .LVU75
+ 293              		.loc 1 233 29 is_stmt 0 view .LVU76
+ 294 0020 01A8     		add	r0, sp, #4
+ 295 0022 FFF7FEFF 		bl	LineSensor_Get
+ 296              	.LVL20:
+ 234:application/chassis_task.c ****         uint8_t bit;
+ 297              		.loc 1 234 9 is_stmt 1 view .LVU77
+ 235:application/chassis_task.c **** 
+ 236:application/chassis_task.c ****         text[0] = 'R';
+ 298              		.loc 1 236 9 view .LVU78
+ 299              		.loc 1 236 17 is_stmt 0 view .LVU79
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 11
+
+
+ 300 0026 5223     		movs	r3, #82
+ 301 0028 8DF80C30 		strb	r3, [sp, #12]
+ 237:application/chassis_task.c ****         text[1] = 'a';
+ 302              		.loc 1 237 9 is_stmt 1 view .LVU80
+ 303              		.loc 1 237 17 is_stmt 0 view .LVU81
+ 304 002c 6123     		movs	r3, #97
+ 305 002e 8DF80D30 		strb	r3, [sp, #13]
+ 238:application/chassis_task.c ****         text[2] = 'w';
+ 306              		.loc 1 238 9 is_stmt 1 view .LVU82
+ 307              		.loc 1 238 17 is_stmt 0 view .LVU83
+ 308 0032 7723     		movs	r3, #119
+ 309 0034 8DF80E30 		strb	r3, [sp, #14]
+ 239:application/chassis_task.c ****         text[3] = ':';
+ 310              		.loc 1 239 9 is_stmt 1 view .LVU84
+ 311              		.loc 1 239 17 is_stmt 0 view .LVU85
+ 312 0038 3A23     		movs	r3, #58
+ 313 003a 8DF80F30 		strb	r3, [sp, #15]
+ 240:application/chassis_task.c ****         for (bit = 0U; bit < LINE_SENSOR_CHANNEL_COUNT; bit++) {
+ 314              		.loc 1 240 9 is_stmt 1 view .LVU86
+ 315              	.LVL21:
+ 316              		.loc 1 240 9 is_stmt 0 view .LVU87
+ 317 003e 19E0     		b	.L24
+ 318              	.LVL22:
+ 319              	.L20:
+ 320              		.loc 1 240 9 view .LVU88
+ 321              	.LBE2:
+ 221:application/chassis_task.c ****         }
+ 322              		.loc 1 221 13 is_stmt 1 view .LVU89
+ 323 0040 3A49     		ldr	r1, .L33+8
+ 324 0042 0120     		movs	r0, #1
+ 325 0044 FFF7FEFF 		bl	ChassisTask_ShowPaddedLine
+ 326              	.LVL23:
+ 327 0048 E6E7     		b	.L21
+ 328              	.L19:
+ 224:application/chassis_task.c ****             ChassisTask_ShowPaddedLine(1U, "Mode:FOLL OK");
+ 329              		.loc 1 224 9 view .LVU90
+ 224:application/chassis_task.c ****             ChassisTask_ShowPaddedLine(1U, "Mode:FOLL OK");
+ 330              		.loc 1 224 13 is_stmt 0 view .LVU91
+ 331 004a FFF7FEFF 		bl	VisionLink_IsFresh
+ 332              	.LVL24:
+ 224:application/chassis_task.c ****             ChassisTask_ShowPaddedLine(1U, "Mode:FOLL OK");
+ 333              		.loc 1 224 12 discriminator 1 view .LVU92
+ 334 004e 20B1     		cbz	r0, .L22
+ 225:application/chassis_task.c ****         } else {
+ 335              		.loc 1 225 13 is_stmt 1 view .LVU93
+ 336 0050 3749     		ldr	r1, .L33+12
+ 337 0052 0120     		movs	r0, #1
+ 338 0054 FFF7FEFF 		bl	ChassisTask_ShowPaddedLine
+ 339              	.LVL25:
+ 340 0058 DEE7     		b	.L21
+ 341              	.L22:
+ 227:application/chassis_task.c ****         }
+ 342              		.loc 1 227 13 view .LVU94
+ 343 005a 3649     		ldr	r1, .L33+16
+ 344 005c 0120     		movs	r0, #1
+ 345 005e FFF7FEFF 		bl	ChassisTask_ShowPaddedLine
+ 346              	.LVL26:
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 12
+
+
+ 347 0062 D9E7     		b	.L21
+ 348              	.LVL27:
+ 349              	.L30:
+ 350              	.LBB3:
+ 241:application/chassis_task.c ****             text[4U + bit] = (((line.raw_levels >> bit) & 0x01U) != 0U) ? '1' : '0';
+ 351              		.loc 1 241 28 is_stmt 0 discriminator 2 view .LVU95
+ 352 0064 3022     		movs	r2, #48
+ 353              	.L25:
+ 354              		.loc 1 241 28 discriminator 4 view .LVU96
+ 355 0066 04F12403 		add	r3, r4, #36
+ 356 006a 6B44     		add	r3, sp, r3
+ 357 006c 03F8142C 		strb	r2, [r3, #-20]
+ 240:application/chassis_task.c ****             text[4U + bit] = (((line.raw_levels >> bit) & 0x01U) != 0U) ? '1' : '0';
+ 358              		.loc 1 240 60 is_stmt 1 discriminator 2 view .LVU97
+ 359 0070 0134     		adds	r4, r4, #1
+ 360              	.LVL28:
+ 240:application/chassis_task.c ****             text[4U + bit] = (((line.raw_levels >> bit) & 0x01U) != 0U) ? '1' : '0';
+ 361              		.loc 1 240 60 is_stmt 0 discriminator 2 view .LVU98
+ 362 0072 E4B2     		uxtb	r4, r4
+ 363              	.LVL29:
+ 364              	.L24:
+ 240:application/chassis_task.c ****             text[4U + bit] = (((line.raw_levels >> bit) & 0x01U) != 0U) ? '1' : '0';
+ 365              		.loc 1 240 28 is_stmt 1 discriminator 1 view .LVU99
+ 366 0074 062C     		cmp	r4, #6
+ 367 0076 07D8     		bhi	.L32
+ 368              		.loc 1 241 13 view .LVU100
+ 369              		.loc 1 241 37 is_stmt 0 view .LVU101
+ 370 0078 9DF80430 		ldrb	r3, [sp, #4]	@ zero_extendqisi2
+ 371              		.loc 1 241 49 view .LVU102
+ 372 007c 2341     		asrs	r3, r3, r4
+ 373              		.loc 1 241 28 view .LVU103
+ 374 007e 13F0010F 		tst	r3, #1
+ 375 0082 EFD0     		beq	.L30
+ 376              		.loc 1 241 28 discriminator 1 view .LVU104
+ 377 0084 3122     		movs	r2, #49
+ 378 0086 EEE7     		b	.L25
+ 379              	.L32:
+ 242:application/chassis_task.c ****         }
+ 243:application/chassis_task.c ****         text[4U + LINE_SENSOR_CHANNEL_COUNT] = '\0';
+ 380              		.loc 1 243 9 is_stmt 1 view .LVU105
+ 381              		.loc 1 243 46 is_stmt 0 view .LVU106
+ 382 0088 0023     		movs	r3, #0
+ 383 008a 8DF81730 		strb	r3, [sp, #23]
+ 244:application/chassis_task.c ****         ChassisTask_ShowPaddedLine(2U, text);
+ 384              		.loc 1 244 9 is_stmt 1 view .LVU107
+ 385 008e 03A9     		add	r1, sp, #12
+ 386 0090 0220     		movs	r0, #2
+ 387 0092 FFF7FEFF 		bl	ChassisTask_ShowPaddedLine
+ 388              	.LVL30:
+ 389              	.L27:
+ 390              		.loc 1 244 9 is_stmt 0 view .LVU108
+ 391              	.LBE3:
+ 245:application/chassis_task.c ****     } else {
+ 246:application/chassis_task.c ****         /* 云台 yaw 偏角，按整度显示（内部是 0.1 度） */
+ 247:application/chassis_task.c ****         int16_t dev_deg = (int16_t)(VisionLink_GetYawDevTenthDeg() / 10);
+ 248:application/chassis_task.c **** 
+ 249:application/chassis_task.c ****         (void)sprintf(text, "Dev:%+04d", (int)dev_deg);
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 13
+
+
+ 250:application/chassis_task.c ****         ChassisTask_ShowPaddedLine(2U, text);
+ 251:application/chassis_task.c ****     }
+ 252:application/chassis_task.c **** 
+ 253:application/chassis_task.c ****     /* ---------- 第 3 行：超声波距离 ---------- */
+ 254:application/chassis_task.c ****     if (DistanceSensor_IsValid() != 0U) {
+ 392              		.loc 1 254 5 is_stmt 1 view .LVU109
+ 393              		.loc 1 254 9 is_stmt 0 view .LVU110
+ 394 0096 FFF7FEFF 		bl	DistanceSensor_IsValid
+ 395              	.LVL31:
+ 396              		.loc 1 254 8 discriminator 1 view .LVU111
+ 397 009a 0028     		cmp	r0, #0
+ 398 009c 39D0     		beq	.L28
+ 255:application/chassis_task.c ****         (void)sprintf(text, "Dist:%03ucm", (unsigned)DistanceSensor_GetCm());
+ 399              		.loc 1 255 9 is_stmt 1 view .LVU112
+ 400              		.loc 1 255 54 is_stmt 0 view .LVU113
+ 401 009e FFF7FEFF 		bl	DistanceSensor_GetCm
+ 402              	.LVL32:
+ 403 00a2 0246     		mov	r2, r0
+ 404              		.loc 1 255 15 discriminator 1 view .LVU114
+ 405 00a4 2449     		ldr	r1, .L33+20
+ 406 00a6 03A8     		add	r0, sp, #12
+ 407 00a8 FFF7FEFF 		bl	sprintf
+ 408              	.LVL33:
+ 409              	.L29:
+ 256:application/chassis_task.c ****     } else {
+ 257:application/chassis_task.c ****         (void)sprintf(text, "Dist:---cm");
+ 258:application/chassis_task.c ****     }
+ 259:application/chassis_task.c ****     ChassisTask_ShowPaddedLine(3U, text);
+ 410              		.loc 1 259 5 is_stmt 1 view .LVU115
+ 411 00ac 03A9     		add	r1, sp, #12
+ 412 00ae 0320     		movs	r0, #3
+ 413 00b0 FFF7FEFF 		bl	ChassisTask_ShowPaddedLine
+ 414              	.LVL34:
+ 260:application/chassis_task.c **** 
+ 261:application/chassis_task.c ****     /* ---------- 第 4 行：左右轮实际输出 ---------- */
+ 262:application/chassis_task.c ****     OLED_ShowString(4U, 1U, "L:");
+ 415              		.loc 1 262 5 view .LVU116
+ 416 00b4 214A     		ldr	r2, .L33+24
+ 417 00b6 0121     		movs	r1, #1
+ 418 00b8 0420     		movs	r0, #4
+ 419 00ba FFF7FEFF 		bl	OLED_ShowString
+ 420              	.LVL35:
+ 263:application/chassis_task.c ****     OLED_ShowSignedNum(4U, 3U, (int32_t)Motor_GetLeftOutput(), 3U);
+ 421              		.loc 1 263 5 view .LVU117
+ 422              		.loc 1 263 41 is_stmt 0 view .LVU118
+ 423 00be FFF7FEFF 		bl	Motor_GetLeftOutput
+ 424              	.LVL36:
+ 425 00c2 0246     		mov	r2, r0
+ 426              		.loc 1 263 5 discriminator 1 view .LVU119
+ 427 00c4 0323     		movs	r3, #3
+ 428 00c6 1946     		mov	r1, r3
+ 429 00c8 0420     		movs	r0, #4
+ 430 00ca FFF7FEFF 		bl	OLED_ShowSignedNum
+ 431              	.LVL37:
+ 264:application/chassis_task.c ****     OLED_ShowString(4U, 8U, "R:");
+ 432              		.loc 1 264 5 is_stmt 1 view .LVU120
+ 433 00ce 1C4A     		ldr	r2, .L33+28
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 14
+
+
+ 434 00d0 0821     		movs	r1, #8
+ 435 00d2 0420     		movs	r0, #4
+ 436 00d4 FFF7FEFF 		bl	OLED_ShowString
+ 437              	.LVL38:
+ 265:application/chassis_task.c ****     OLED_ShowSignedNum(4U, 10U, (int32_t)Motor_GetRightOutput(), 3U);
+ 438              		.loc 1 265 5 view .LVU121
+ 439              		.loc 1 265 42 is_stmt 0 view .LVU122
+ 440 00d8 FFF7FEFF 		bl	Motor_GetRightOutput
+ 441              	.LVL39:
+ 442 00dc 0246     		mov	r2, r0
+ 443              		.loc 1 265 5 discriminator 1 view .LVU123
+ 444 00de 0323     		movs	r3, #3
+ 445 00e0 0A21     		movs	r1, #10
+ 446 00e2 0420     		movs	r0, #4
+ 447 00e4 FFF7FEFF 		bl	OLED_ShowSignedNum
+ 448              	.LVL40:
+ 266:application/chassis_task.c **** }
+ 449              		.loc 1 266 1 view .LVU124
+ 450 00e8 08B0     		add	sp, sp, #32
+ 451              		.cfi_remember_state
+ 452              		.cfi_def_cfa_offset 8
+ 453              		@ sp needed
+ 454 00ea 10BD     		pop	{r4, pc}
+ 455              	.L23:
+ 456              		.cfi_restore_state
+ 457              	.LBB4:
+ 247:application/chassis_task.c **** 
+ 458              		.loc 1 247 9 is_stmt 1 view .LVU125
+ 247:application/chassis_task.c **** 
+ 459              		.loc 1 247 37 is_stmt 0 view .LVU126
+ 460 00ec FFF7FEFF 		bl	VisionLink_GetYawDevTenthDeg
+ 461              	.LVL41:
+ 247:application/chassis_task.c **** 
+ 462              		.loc 1 247 17 discriminator 1 view .LVU127
+ 463 00f0 144B     		ldr	r3, .L33+32
+ 464 00f2 83FB0023 		smull	r2, r3, r3, r0
+ 465 00f6 C017     		asrs	r0, r0, #31
+ 466 00f8 C0EBA302 		rsb	r2, r0, r3, asr #2
+ 467              	.LVL42:
+ 249:application/chassis_task.c ****         ChassisTask_ShowPaddedLine(2U, text);
+ 468              		.loc 1 249 9 is_stmt 1 view .LVU128
+ 249:application/chassis_task.c ****         ChassisTask_ShowPaddedLine(2U, text);
+ 469              		.loc 1 249 15 is_stmt 0 view .LVU129
+ 470 00fc 03AC     		add	r4, sp, #12
+ 471 00fe 12B2     		sxth	r2, r2
+ 249:application/chassis_task.c ****         ChassisTask_ShowPaddedLine(2U, text);
+ 472              		.loc 1 249 15 view .LVU130
+ 473 0100 1149     		ldr	r1, .L33+36
+ 474 0102 2046     		mov	r0, r4
+ 475 0104 FFF7FEFF 		bl	sprintf
+ 476              	.LVL43:
+ 250:application/chassis_task.c ****     }
+ 477              		.loc 1 250 9 is_stmt 1 view .LVU131
+ 478 0108 2146     		mov	r1, r4
+ 479 010a 0220     		movs	r0, #2
+ 480 010c FFF7FEFF 		bl	ChassisTask_ShowPaddedLine
+ 481              	.LVL44:
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 15
+
+
+ 482 0110 C1E7     		b	.L27
+ 483              	.LVL45:
+ 484              	.L28:
+ 250:application/chassis_task.c ****     }
+ 485              		.loc 1 250 9 is_stmt 0 view .LVU132
+ 486              	.LBE4:
+ 257:application/chassis_task.c ****     }
+ 487              		.loc 1 257 9 is_stmt 1 view .LVU133
+ 257:application/chassis_task.c ****     }
+ 488              		.loc 1 257 15 is_stmt 0 view .LVU134
+ 489 0112 0E4A     		ldr	r2, .L33+40
+ 490 0114 03AB     		add	r3, sp, #12
+ 491 0116 07CA     		ldm	r2, {r0, r1, r2}
+ 492 0118 03C3     		stmia	r3!, {r0, r1}
+ 493 011a 23F8022B 		strh	r2, [r3], #2	@ movhi
+ 494 011e 120C     		lsrs	r2, r2, #16
+ 495 0120 1A70     		strb	r2, [r3]
+ 496 0122 C3E7     		b	.L29
+ 497              	.L34:
+ 498              		.align	2
+ 499              	.L33:
+ 500 0124 00000000 		.word	s_mode
+ 501 0128 00000000 		.word	.LC0
+ 502 012c 10000000 		.word	.LC1
+ 503 0130 20000000 		.word	.LC2
+ 504 0134 30000000 		.word	.LC3
+ 505 0138 4C000000 		.word	.LC5
+ 506 013c 64000000 		.word	.LC7
+ 507 0140 68000000 		.word	.LC8
+ 508 0144 67666666 		.word	1717986919
+ 509 0148 40000000 		.word	.LC4
+ 510 014c 58000000 		.word	.LC6
+ 511              		.cfi_endproc
+ 512              	.LFE36:
+ 514              		.section	.text.ChassisTask_UpdateLineTrack,"ax",%progbits
+ 515              		.align	1
+ 516              		.syntax unified
+ 517              		.thumb
+ 518              		.thumb_func
+ 520              	ChassisTask_UpdateLineTrack:
+ 521              	.LFB32:
+  36:application/chassis_task.c ****     /* TODO(循迹实现时)：
+ 522              		.loc 1 36 1 is_stmt 1 view -0
+ 523              		.cfi_startproc
+ 524              		@ args = 0, pretend = 0, frame = 0
+ 525              		@ frame_needed = 0, uses_anonymous_args = 0
+ 526 0000 08B5     		push	{r3, lr}
+ 527              		.cfi_def_cfa_offset 8
+ 528              		.cfi_offset 3, -8
+ 529              		.cfi_offset 14, -4
+  43:application/chassis_task.c **** }
+ 530              		.loc 1 43 5 view .LVU136
+ 531 0002 0021     		movs	r1, #0
+ 532 0004 0846     		mov	r0, r1
+ 533 0006 FFF7FEFF 		bl	Motor_SetSpeed
+ 534              	.LVL46:
+  44:application/chassis_task.c **** 
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 16
+
+
+ 535              		.loc 1 44 1 is_stmt 0 view .LVU137
+ 536 000a 08BD     		pop	{r3, pc}
+ 537              		.cfi_endproc
+ 538              	.LFE32:
+ 540              		.section	.text.ChassisTask_UpdateFollow,"ax",%progbits
+ 541              		.align	1
+ 542              		.syntax unified
+ 543              		.thumb
+ 544              		.thumb_func
+ 546              	ChassisTask_UpdateFollow:
+ 547              	.LFB33:
+  60:application/chassis_task.c ****     VisionLink_t link;
+ 548              		.loc 1 60 1 is_stmt 1 view -0
+ 549              		.cfi_startproc
+ 550              		@ args = 0, pretend = 0, frame = 24
+ 551              		@ frame_needed = 0, uses_anonymous_args = 0
+ 552 0000 10B5     		push	{r4, lr}
+ 553              		.cfi_def_cfa_offset 8
+ 554              		.cfi_offset 4, -8
+ 555              		.cfi_offset 14, -4
+ 556 0002 86B0     		sub	sp, sp, #24
+ 557              		.cfi_def_cfa_offset 32
+  61:application/chassis_task.c ****     int16_t dev_tenth;
+ 558              		.loc 1 61 5 view .LVU139
+  62:application/chassis_task.c ****     int32_t steer;
+ 559              		.loc 1 62 5 view .LVU140
+  63:application/chassis_task.c ****     int32_t forward_speed = 0;
+ 560              		.loc 1 63 5 view .LVU141
+  64:application/chassis_task.c ****     int32_t left;
+ 561              		.loc 1 64 5 view .LVU142
+ 562              	.LVL47:
+  65:application/chassis_task.c ****     int32_t right;
+ 563              		.loc 1 65 5 view .LVU143
+  66:application/chassis_task.c ****     const int32_t speed_max = (int32_t)CHASSIS_FOLLOW_SPEED_MAX;
+ 564              		.loc 1 66 5 view .LVU144
+  67:application/chassis_task.c ****     const int32_t duty_max = (int32_t)CHASSIS_MOTOR_DUTY_MAX;
+ 565              		.loc 1 67 5 view .LVU145
+  68:application/chassis_task.c **** 
+ 566              		.loc 1 68 5 view .LVU146
+  71:application/chassis_task.c ****         Motor_SetSpeed(0, 0);
+ 567              		.loc 1 71 5 view .LVU147
+  71:application/chassis_task.c ****         Motor_SetSpeed(0, 0);
+ 568              		.loc 1 71 9 is_stmt 0 view .LVU148
+ 569 0004 FFF7FEFF 		bl	VisionLink_IsFresh
+ 570              	.LVL48:
+  71:application/chassis_task.c ****         Motor_SetSpeed(0, 0);
+ 571              		.loc 1 71 8 discriminator 1 view .LVU149
+ 572 0008 88B1     		cbz	r0, .L63
+  77:application/chassis_task.c ****     dev_tenth = link.yaw_dev_tenth_deg;
+ 573              		.loc 1 77 5 is_stmt 1 view .LVU150
+  77:application/chassis_task.c ****     dev_tenth = link.yaw_dev_tenth_deg;
+ 574              		.loc 1 77 12 is_stmt 0 view .LVU151
+ 575 000a 01A8     		add	r0, sp, #4
+ 576 000c FFF7FEFF 		bl	VisionLink_Get
+ 577              	.LVL49:
+  78:application/chassis_task.c **** 
+ 578              		.loc 1 78 5 is_stmt 1 view .LVU152
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 17
+
+
+  78:application/chassis_task.c **** 
+ 579              		.loc 1 78 15 is_stmt 0 view .LVU153
+ 580 0010 BDF90440 		ldrsh	r4, [sp, #4]
+ 581              	.LVL50:
+  81:application/chassis_task.c ****         dev_tenth = (int16_t)(dev_tenth - (int16_t)CHASSIS_FOLLOW_STEER_DEADBAND_TENTH_DEG);
+ 582              		.loc 1 81 5 is_stmt 1 view .LVU154
+  81:application/chassis_task.c ****         dev_tenth = (int16_t)(dev_tenth - (int16_t)CHASSIS_FOLLOW_STEER_DEADBAND_TENTH_DEG);
+ 583              		.loc 1 81 8 is_stmt 0 view .LVU155
+ 584 0014 1E2C     		cmp	r4, #30
+ 585 0016 0EDD     		ble	.L40
+  82:application/chassis_task.c ****     } else if (dev_tenth < -(int16_t)CHASSIS_FOLLOW_STEER_DEADBAND_TENTH_DEG) {
+ 586              		.loc 1 82 9 is_stmt 1 view .LVU156
+  82:application/chassis_task.c ****     } else if (dev_tenth < -(int16_t)CHASSIS_FOLLOW_STEER_DEADBAND_TENTH_DEG) {
+ 587              		.loc 1 82 41 is_stmt 0 view .LVU157
+ 588 0018 1E3C     		subs	r4, r4, #30
+ 589              	.LVL51:
+  82:application/chassis_task.c ****     } else if (dev_tenth < -(int16_t)CHASSIS_FOLLOW_STEER_DEADBAND_TENTH_DEG) {
+ 590              		.loc 1 82 19 view .LVU158
+ 591 001a 24B2     		sxth	r4, r4
+ 592              	.LVL52:
+ 593              	.L41:
+  90:application/chassis_task.c ****     steer = steer * (int32_t)CHASSIS_FOLLOW_STEER_SIGN;
+ 594              		.loc 1 90 5 is_stmt 1 view .LVU159
+  90:application/chassis_task.c ****     steer = steer * (int32_t)CHASSIS_FOLLOW_STEER_SIGN;
+ 595              		.loc 1 90 11 is_stmt 0 view .LVU160
+ 596 001c 6400     		lsls	r4, r4, #1
+ 597              	.LVL53:
+  91:application/chassis_task.c **** 
+ 598              		.loc 1 91 5 is_stmt 1 view .LVU161
+  93:application/chassis_task.c ****         steer = duty_max;
+ 599              		.loc 1 93 5 view .LVU162
+  93:application/chassis_task.c ****         steer = duty_max;
+ 600              		.loc 1 93 8 is_stmt 0 view .LVU163
+ 601 001e B4F52F7F 		cmp	r4, #700
+ 602 0022 10DC     		bgt	.L53
+ 603              	.LVL54:
+ 604              	.L42:
+  96:application/chassis_task.c ****         steer = -duty_max;
+ 605              		.loc 1 96 5 is_stmt 1 view .LVU164
+  96:application/chassis_task.c ****         steer = -duty_max;
+ 606              		.loc 1 96 8 is_stmt 0 view .LVU165
+ 607 0024 14F52F7F 		cmn	r4, #700
+ 608 0028 0FDA     		bge	.L43
+  97:application/chassis_task.c ****     }
+ 609              		.loc 1 97 15 view .LVU166
+ 610 002a 274C     		ldr	r4, .L64
+ 611              	.LVL55:
+  97:application/chassis_task.c ****     }
+ 612              		.loc 1 97 15 view .LVU167
+ 613 002c 0DE0     		b	.L43
+ 614              	.LVL56:
+ 615              	.L63:
+  72:application/chassis_task.c ****         return;
+ 616              		.loc 1 72 9 is_stmt 1 view .LVU168
+ 617 002e 0146     		mov	r1, r0
+ 618 0030 FFF7FEFF 		bl	Motor_SetSpeed
+ 619              	.LVL57:
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 18
+
+
+  73:application/chassis_task.c ****     }
+ 620              		.loc 1 73 9 view .LVU169
+ 621 0034 46E0     		b	.L37
+ 622              	.LVL58:
+ 623              	.L40:
+  83:application/chassis_task.c ****         dev_tenth = (int16_t)(dev_tenth + (int16_t)CHASSIS_FOLLOW_STEER_DEADBAND_TENTH_DEG);
+ 624              		.loc 1 83 12 view .LVU170
+  83:application/chassis_task.c ****         dev_tenth = (int16_t)(dev_tenth + (int16_t)CHASSIS_FOLLOW_STEER_DEADBAND_TENTH_DEG);
+ 625              		.loc 1 83 15 is_stmt 0 view .LVU171
+ 626 0036 14F11E0F 		cmn	r4, #30
+ 627 003a 02DA     		bge	.L52
+  84:application/chassis_task.c ****     } else {
+ 628              		.loc 1 84 9 is_stmt 1 view .LVU172
+  84:application/chassis_task.c ****     } else {
+ 629              		.loc 1 84 41 is_stmt 0 view .LVU173
+ 630 003c 1E34     		adds	r4, r4, #30
+ 631              	.LVL59:
+  84:application/chassis_task.c ****     } else {
+ 632              		.loc 1 84 19 view .LVU174
+ 633 003e 24B2     		sxth	r4, r4
+ 634              	.LVL60:
+  84:application/chassis_task.c ****     } else {
+ 635              		.loc 1 84 19 view .LVU175
+ 636 0040 ECE7     		b	.L41
+ 637              	.LVL61:
+ 638              	.L52:
+  91:application/chassis_task.c **** 
+ 639              		.loc 1 91 11 view .LVU176
+ 640 0042 0024     		movs	r4, #0
+ 641              	.LVL62:
+  91:application/chassis_task.c **** 
+ 642              		.loc 1 91 11 view .LVU177
+ 643 0044 EEE7     		b	.L42
+ 644              	.LVL63:
+ 645              	.L53:
+  94:application/chassis_task.c ****     }
+ 646              		.loc 1 94 15 view .LVU178
+ 647 0046 4FF42F74 		mov	r4, #700
+ 648              	.LVL64:
+ 649              	.L43:
+ 101:application/chassis_task.c ****         int32_t error_cm = (int32_t)DistanceSensor_GetCm()
+ 650              		.loc 1 101 5 is_stmt 1 view .LVU179
+ 101:application/chassis_task.c ****         int32_t error_cm = (int32_t)DistanceSensor_GetCm()
+ 651              		.loc 1 101 9 is_stmt 0 view .LVU180
+ 652 004a FFF7FEFF 		bl	DistanceSensor_IsValid
+ 653              	.LVL65:
+ 101:application/chassis_task.c ****         int32_t error_cm = (int32_t)DistanceSensor_GetCm()
+ 654              		.loc 1 101 8 discriminator 1 view .LVU181
+ 655 004e C8B1     		cbz	r0, .L44
+ 656              	.LBB5:
+ 102:application/chassis_task.c ****                          - (int32_t)CHASSIS_FOLLOW_TARGET_DISTANCE_CM;
+ 657              		.loc 1 102 9 is_stmt 1 view .LVU182
+ 102:application/chassis_task.c ****                          - (int32_t)CHASSIS_FOLLOW_TARGET_DISTANCE_CM;
+ 658              		.loc 1 102 37 is_stmt 0 view .LVU183
+ 659 0050 FFF7FEFF 		bl	DistanceSensor_GetCm
+ 660              	.LVL66:
+ 102:application/chassis_task.c ****                          - (int32_t)CHASSIS_FOLLOW_TARGET_DISTANCE_CM;
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 19
+
+
+ 661              		.loc 1 102 17 discriminator 1 view .LVU184
+ 662 0054 A0F16403 		sub	r3, r0, #100
+ 663              	.LVL67:
+ 104:application/chassis_task.c **** 
+ 664              		.loc 1 104 9 is_stmt 1 view .LVU185
+ 107:application/chassis_task.c ****             error_cm -= deadband_cm;
+ 665              		.loc 1 107 9 view .LVU186
+ 107:application/chassis_task.c ****             error_cm -= deadband_cm;
+ 666              		.loc 1 107 12 is_stmt 0 view .LVU187
+ 667 0058 0A2B     		cmp	r3, #10
+ 668 005a 0CDD     		ble	.L45
+ 108:application/chassis_task.c ****         } else if (error_cm < -deadband_cm) {
+ 669              		.loc 1 108 13 is_stmt 1 view .LVU188
+ 108:application/chassis_task.c ****         } else if (error_cm < -deadband_cm) {
+ 670              		.loc 1 108 22 is_stmt 0 view .LVU189
+ 671 005c 6E38     		subs	r0, r0, #110
+ 672              	.LVL68:
+ 673              	.L46:
+ 116:application/chassis_task.c **** 
+ 674              		.loc 1 116 9 is_stmt 1 view .LVU190
+ 116:application/chassis_task.c **** 
+ 675              		.loc 1 116 23 is_stmt 0 view .LVU191
+ 676 005e 00EB4000 		add	r0, r0, r0, lsl #1
+ 677              	.LVL69:
+ 116:application/chassis_task.c **** 
+ 678              		.loc 1 116 23 view .LVU192
+ 679 0062 4000     		lsls	r0, r0, #1
+ 680 0064 0146     		mov	r1, r0
+ 681              	.LVL70:
+ 118:application/chassis_task.c ****             forward_speed = speed_max;
+ 682              		.loc 1 118 9 is_stmt 1 view .LVU193
+ 118:application/chassis_task.c ****             forward_speed = speed_max;
+ 683              		.loc 1 118 12 is_stmt 0 view .LVU194
+ 684 0066 B0F5FA7F 		cmp	r0, #500
+ 685 006a 0FDC     		bgt	.L56
+ 686              	.LVL71:
+ 687              	.L47:
+ 121:application/chassis_task.c ****             forward_speed = -speed_max;
+ 688              		.loc 1 121 9 is_stmt 1 view .LVU195
+ 121:application/chassis_task.c ****             forward_speed = -speed_max;
+ 689              		.loc 1 121 12 is_stmt 0 view .LVU196
+ 690 006c 11F5FA7F 		cmn	r1, #500
+ 691 0070 0EDA     		bge	.L48
+ 122:application/chassis_task.c ****         }
+ 692              		.loc 1 122 27 view .LVU197
+ 693 0072 1649     		ldr	r1, .L64+4
+ 694              	.LVL72:
+ 122:application/chassis_task.c ****         }
+ 695              		.loc 1 122 27 view .LVU198
+ 696 0074 0CE0     		b	.L48
+ 697              	.LVL73:
+ 698              	.L45:
+ 109:application/chassis_task.c ****             error_cm += deadband_cm;
+ 699              		.loc 1 109 16 is_stmt 1 view .LVU199
+ 109:application/chassis_task.c ****             error_cm += deadband_cm;
+ 700              		.loc 1 109 19 is_stmt 0 view .LVU200
+ 701 0076 13F10A0F 		cmn	r3, #10
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 20
+
+
+ 702 007a 01DA     		bge	.L55
+ 110:application/chassis_task.c ****         } else {
+ 703              		.loc 1 110 13 is_stmt 1 view .LVU201
+ 110:application/chassis_task.c ****         } else {
+ 704              		.loc 1 110 22 is_stmt 0 view .LVU202
+ 705 007c 5A38     		subs	r0, r0, #90
+ 706 007e EEE7     		b	.L46
+ 707              	.L55:
+ 116:application/chassis_task.c **** 
+ 708              		.loc 1 116 23 view .LVU203
+ 709 0080 0021     		movs	r1, #0
+ 710 0082 F3E7     		b	.L47
+ 711              	.LVL74:
+ 712              	.L44:
+ 116:application/chassis_task.c **** 
+ 713              		.loc 1 116 23 view .LVU204
+ 714              	.LBE5:
+ 128:application/chassis_task.c ****         return;
+ 715              		.loc 1 128 9 is_stmt 1 view .LVU205
+ 716 0084 0146     		mov	r1, r0
+ 717 0086 FFF7FEFF 		bl	Motor_SetSpeed
+ 718              	.LVL75:
+ 129:application/chassis_task.c **** #else
+ 719              		.loc 1 129 9 view .LVU206
+ 720 008a 1BE0     		b	.L37
+ 721              	.LVL76:
+ 722              	.L56:
+ 723              	.LBB6:
+ 119:application/chassis_task.c ****         }
+ 724              		.loc 1 119 27 is_stmt 0 view .LVU207
+ 725 008c 4FF4FA71 		mov	r1, #500
+ 726              	.LVL77:
+ 727              	.L48:
+ 119:application/chassis_task.c ****         }
+ 728              		.loc 1 119 27 view .LVU208
+ 729              	.LBE6:
+ 137:application/chassis_task.c ****     right = forward_speed - steer;
+ 730              		.loc 1 137 5 is_stmt 1 view .LVU209
+ 137:application/chassis_task.c ****     right = forward_speed - steer;
+ 731              		.loc 1 137 10 is_stmt 0 view .LVU210
+ 732 0090 6018     		adds	r0, r4, r1
+ 733              	.LVL78:
+ 138:application/chassis_task.c **** 
+ 734              		.loc 1 138 5 is_stmt 1 view .LVU211
+ 138:application/chassis_task.c **** 
+ 735              		.loc 1 138 11 is_stmt 0 view .LVU212
+ 736 0092 091B     		subs	r1, r1, r4
+ 737              	.LVL79:
+ 141:application/chassis_task.c ****         left = duty_max;
+ 738              		.loc 1 141 5 is_stmt 1 view .LVU213
+ 141:application/chassis_task.c ****         left = duty_max;
+ 739              		.loc 1 141 8 is_stmt 0 view .LVU214
+ 740 0094 B0F52F7F 		cmp	r0, #700
+ 741 0098 04DC     		bgt	.L58
+ 144:application/chassis_task.c ****         left = -duty_max;
+ 742              		.loc 1 144 5 is_stmt 1 view .LVU215
+ 144:application/chassis_task.c ****         left = -duty_max;
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 21
+
+
+ 743              		.loc 1 144 8 is_stmt 0 view .LVU216
+ 744 009a 10F52F7F 		cmn	r0, #700
+ 745 009e 03DA     		bge	.L49
+ 145:application/chassis_task.c ****     }
+ 746              		.loc 1 145 14 view .LVU217
+ 747 00a0 0948     		ldr	r0, .L64
+ 748              	.LVL80:
+ 145:application/chassis_task.c ****     }
+ 749              		.loc 1 145 14 view .LVU218
+ 750 00a2 01E0     		b	.L49
+ 751              	.LVL81:
+ 752              	.L58:
+ 142:application/chassis_task.c ****     }
+ 753              		.loc 1 142 14 view .LVU219
+ 754 00a4 4FF42F70 		mov	r0, #700
+ 755              	.LVL82:
+ 756              	.L49:
+ 147:application/chassis_task.c ****         right = duty_max;
+ 757              		.loc 1 147 5 is_stmt 1 view .LVU220
+ 147:application/chassis_task.c ****         right = duty_max;
+ 758              		.loc 1 147 8 is_stmt 0 view .LVU221
+ 759 00a8 B1F52F7F 		cmp	r1, #700
+ 760 00ac 04DC     		bgt	.L60
+ 150:application/chassis_task.c ****         right = -duty_max;
+ 761              		.loc 1 150 5 is_stmt 1 view .LVU222
+ 150:application/chassis_task.c ****         right = -duty_max;
+ 762              		.loc 1 150 8 is_stmt 0 view .LVU223
+ 763 00ae 11F52F7F 		cmn	r1, #700
+ 764 00b2 03DA     		bge	.L50
+ 151:application/chassis_task.c ****     }
+ 765              		.loc 1 151 15 view .LVU224
+ 766 00b4 0449     		ldr	r1, .L64
+ 767              	.LVL83:
+ 151:application/chassis_task.c ****     }
+ 768              		.loc 1 151 15 view .LVU225
+ 769 00b6 01E0     		b	.L50
+ 770              	.LVL84:
+ 771              	.L60:
+ 148:application/chassis_task.c ****     }
+ 772              		.loc 1 148 15 view .LVU226
+ 773 00b8 4FF42F71 		mov	r1, #700
+ 774              	.LVL85:
+ 775              	.L50:
+ 154:application/chassis_task.c **** }
+ 776              		.loc 1 154 5 is_stmt 1 view .LVU227
+ 777 00bc 09B2     		sxth	r1, r1
+ 778              	.LVL86:
+ 154:application/chassis_task.c **** }
+ 779              		.loc 1 154 5 is_stmt 0 view .LVU228
+ 780 00be 00B2     		sxth	r0, r0
+ 781              	.LVL87:
+ 154:application/chassis_task.c **** }
+ 782              		.loc 1 154 5 view .LVU229
+ 783 00c0 FFF7FEFF 		bl	Motor_SetSpeed
+ 784              	.LVL88:
+ 785              	.L37:
+ 155:application/chassis_task.c **** 
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 22
+
+
+ 786              		.loc 1 155 1 view .LVU230
+ 787 00c4 06B0     		add	sp, sp, #24
+ 788              		.cfi_def_cfa_offset 8
+ 789              		@ sp needed
+ 790 00c6 10BD     		pop	{r4, pc}
+ 791              	.L65:
+ 792              		.align	2
+ 793              	.L64:
+ 794 00c8 44FDFFFF 		.word	-700
+ 795 00cc 0CFEFFFF 		.word	-500
+ 796              		.cfi_endproc
+ 797              	.LFE33:
+ 799              		.section	.text.ChassisTask_Init,"ax",%progbits
+ 800              		.align	1
+ 801              		.global	ChassisTask_Init
+ 802              		.syntax unified
+ 803              		.thumb
+ 804              		.thumb_func
+ 806              	ChassisTask_Init:
+ 807              	.LFB37:
+ 267:application/chassis_task.c **** 
+ 268:application/chassis_task.c **** /* ------------------------------------------------------------ 对外接口 -- */
+ 269:application/chassis_task.c **** 
+ 270:application/chassis_task.c **** void ChassisTask_Init(void)
+ 271:application/chassis_task.c **** {
+ 808              		.loc 1 271 1 is_stmt 1 view -0
+ 809              		.cfi_startproc
+ 810              		@ args = 0, pretend = 0, frame = 0
+ 811              		@ frame_needed = 0, uses_anonymous_args = 0
+ 812 0000 08B5     		push	{r3, lr}
+ 813              		.cfi_def_cfa_offset 8
+ 814              		.cfi_offset 3, -8
+ 815              		.cfi_offset 14, -4
+ 272:application/chassis_task.c ****     uint32_t now_ms;
+ 816              		.loc 1 272 5 view .LVU232
+ 273:application/chassis_task.c **** 
+ 274:application/chassis_task.c ****     /* 1) 电机先初始化：BSP 末尾会让电机滑行，确保上电不动 */
+ 275:application/chassis_task.c ****     Motor_Init();
+ 817              		.loc 1 275 5 view .LVU233
+ 818 0002 FFF7FEFF 		bl	Motor_Init
+ 819              	.LVL89:
+ 276:application/chassis_task.c **** 
+ 277:application/chassis_task.c ****     /* 2) 编码器（只做诊断，不参与控制） */
+ 278:application/chassis_task.c ****     BSP_Encoder_Init();
+ 820              		.loc 1 278 5 view .LVU234
+ 821 0006 FFF7FEFF 		bl	BSP_Encoder_Init
+ 822              	.LVL90:
+ 279:application/chassis_task.c **** 
+ 280:application/chassis_task.c ****     /* 3) 输入 */
+ 281:application/chassis_task.c ****     LineSensor_Init();
+ 823              		.loc 1 281 5 view .LVU235
+ 824 000a FFF7FEFF 		bl	LineSensor_Init
+ 825              	.LVL91:
+ 282:application/chassis_task.c ****     BSP_Key_Init();
+ 826              		.loc 1 282 5 view .LVU236
+ 827 000e FFF7FEFF 		bl	BSP_Key_Init
+ 828              	.LVL92:
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 23
+
+
+ 283:application/chassis_task.c **** 
+ 284:application/chassis_task.c ****     /* 4) 双板链路 */
+ 285:application/chassis_task.c ****     VisionLink_Init();
+ 829              		.loc 1 285 5 view .LVU237
+ 830 0012 FFF7FEFF 		bl	VisionLink_Init
+ 831              	.LVL93:
+ 286:application/chassis_task.c **** 
+ 287:application/chassis_task.c ****     /* 5) 超声波测距 */
+ 288:application/chassis_task.c ****     DistanceSensor_Init();
+ 832              		.loc 1 288 5 view .LVU238
+ 833 0016 FFF7FEFF 		bl	DistanceSensor_Init
+ 834              	.LVL94:
+ 289:application/chassis_task.c **** 
+ 290:application/chassis_task.c ****     /* 6) 显示 */
+ 291:application/chassis_task.c ****     OLED_Init();
+ 835              		.loc 1 291 5 view .LVU239
+ 836 001a FFF7FEFF 		bl	OLED_Init
+ 837              	.LVL95:
+ 292:application/chassis_task.c ****     OLED_Clear();
+ 838              		.loc 1 292 5 view .LVU240
+ 839 001e FFF7FEFF 		bl	OLED_Clear
+ 840              	.LVL96:
+ 293:application/chassis_task.c **** 
+ 294:application/chassis_task.c ****     /* 7) 时间基准与上电默认状态 */
+ 295:application/chassis_task.c ****     now_ms = Delay_GetMs();
+ 841              		.loc 1 295 5 view .LVU241
+ 842              		.loc 1 295 14 is_stmt 0 view .LVU242
+ 843 0022 FFF7FEFF 		bl	Delay_GetMs
+ 844              	.LVL97:
+ 296:application/chassis_task.c ****     s_last_display_ms = now_ms;
+ 845              		.loc 1 296 5 is_stmt 1 view .LVU243
+ 846              		.loc 1 296 23 is_stmt 0 view .LVU244
+ 847 0026 0A4B     		ldr	r3, .L68
+ 848 0028 1860     		str	r0, [r3]
+ 297:application/chassis_task.c ****     s_last_debug_ms = now_ms;
+ 849              		.loc 1 297 5 is_stmt 1 view .LVU245
+ 850              		.loc 1 297 21 is_stmt 0 view .LVU246
+ 851 002a 0A4B     		ldr	r3, .L68+4
+ 852 002c 1860     		str	r0, [r3]
+ 298:application/chassis_task.c ****     s_key_last_change_ms = now_ms;
+ 853              		.loc 1 298 5 is_stmt 1 view .LVU247
+ 854              		.loc 1 298 26 is_stmt 0 view .LVU248
+ 855 002e 0A4B     		ldr	r3, .L68+8
+ 856 0030 1860     		str	r0, [r3]
+ 299:application/chassis_task.c ****     s_key_last_raw = BSP_Key_IsDown(BSP_KEY_MODE);
+ 857              		.loc 1 299 5 is_stmt 1 view .LVU249
+ 858              		.loc 1 299 22 is_stmt 0 view .LVU250
+ 859 0032 0020     		movs	r0, #0
+ 860              	.LVL98:
+ 861              		.loc 1 299 22 view .LVU251
+ 862 0034 FFF7FEFF 		bl	BSP_Key_IsDown
+ 863              	.LVL99:
+ 864              		.loc 1 299 20 discriminator 1 view .LVU252
+ 865 0038 084B     		ldr	r3, .L68+12
+ 866 003a 1870     		strb	r0, [r3]
+ 300:application/chassis_task.c ****     s_key_stable_down = 0U;
+ 867              		.loc 1 300 5 is_stmt 1 view .LVU253
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 24
+
+
+ 868              		.loc 1 300 23 is_stmt 0 view .LVU254
+ 869 003c 0023     		movs	r3, #0
+ 870 003e 084A     		ldr	r2, .L68+16
+ 871 0040 1370     		strb	r3, [r2]
+ 301:application/chassis_task.c ****     s_mode = CHASSIS_MODE_LINE_TRACK;
+ 872              		.loc 1 301 5 is_stmt 1 view .LVU255
+ 873              		.loc 1 301 12 is_stmt 0 view .LVU256
+ 874 0042 084A     		ldr	r2, .L68+20
+ 875 0044 1370     		strb	r3, [r2]
+ 302:application/chassis_task.c **** 
+ 303:application/chassis_task.c ****     /* 上电默认：电机滑行（安全状态） */
+ 304:application/chassis_task.c ****     Motor_Stop();
+ 876              		.loc 1 304 5 is_stmt 1 view .LVU257
+ 877 0046 FFF7FEFF 		bl	Motor_Stop
+ 878              	.LVL100:
+ 305:application/chassis_task.c **** 
+ 306:application/chassis_task.c ****     ChassisTask_RefreshDisplay();
+ 879              		.loc 1 306 5 view .LVU258
+ 880 004a FFF7FEFF 		bl	ChassisTask_RefreshDisplay
+ 881              	.LVL101:
+ 307:application/chassis_task.c **** }
+ 882              		.loc 1 307 1 is_stmt 0 view .LVU259
+ 883 004e 08BD     		pop	{r3, pc}
+ 884              	.L69:
+ 885              		.align	2
+ 886              	.L68:
+ 887 0050 00000000 		.word	s_last_display_ms
+ 888 0054 00000000 		.word	s_last_debug_ms
+ 889 0058 00000000 		.word	s_key_last_change_ms
+ 890 005c 00000000 		.word	s_key_last_raw
+ 891 0060 00000000 		.word	s_key_stable_down
+ 892 0064 00000000 		.word	s_mode
+ 893              		.cfi_endproc
+ 894              	.LFE37:
+ 896              		.section	.rodata.ChassisTask_Loop.str1.4,"aMS",%progbits,1
+ 897              		.align	2
+ 898              	.LC9:
+ 899 0000 433A206D 		.ascii	"C: mode=%d raw=%02X lost=%d out=%d/%d dev=%d link=%"
+ 899      6F64653D 
+ 899      25642072 
+ 899      61773D25 
+ 899      30325820 
+ 900 0033 64206469 		.ascii	"d dist=%u/%u us=%u enc=%d/%d err=%lu\015\012\000"
+ 900      73743D25 
+ 900      752F2575 
+ 900      2075733D 
+ 900      25752065 
+ 901              		.section	.text.ChassisTask_Loop,"ax",%progbits
+ 902              		.align	1
+ 903              		.global	ChassisTask_Loop
+ 904              		.syntax unified
+ 905              		.thumb
+ 906              		.thumb_func
+ 908              	ChassisTask_Loop:
+ 909              	.LFB38:
+ 308:application/chassis_task.c **** 
+ 309:application/chassis_task.c **** void ChassisTask_Loop(void)
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 25
+
+
+ 310:application/chassis_task.c **** {
+ 910              		.loc 1 310 1 is_stmt 1 view -0
+ 911              		.cfi_startproc
+ 912              		@ args = 0, pretend = 0, frame = 224
+ 913              		@ frame_needed = 0, uses_anonymous_args = 0
+ 914 0000 2DE9F04F 		push	{r4, r5, r6, r7, r8, r9, r10, fp, lr}
+ 915              		.cfi_def_cfa_offset 36
+ 916              		.cfi_offset 4, -36
+ 917              		.cfi_offset 5, -32
+ 918              		.cfi_offset 6, -28
+ 919              		.cfi_offset 7, -24
+ 920              		.cfi_offset 8, -20
+ 921              		.cfi_offset 9, -16
+ 922              		.cfi_offset 10, -12
+ 923              		.cfi_offset 11, -8
+ 924              		.cfi_offset 14, -4
+ 925 0004 C5B0     		sub	sp, sp, #276
+ 926              		.cfi_def_cfa_offset 312
+ 311:application/chassis_task.c ****     uint32_t now_ms;
+ 927              		.loc 1 311 5 view .LVU261
+ 312:application/chassis_task.c **** 
+ 313:application/chassis_task.c ****     now_ms = Delay_GetMs();
+ 928              		.loc 1 313 5 view .LVU262
+ 929              		.loc 1 313 14 is_stmt 0 view .LVU263
+ 930 0006 FFF7FEFF 		bl	Delay_GetMs
+ 931              	.LVL102:
+ 932 000a 0446     		mov	r4, r0
+ 933              	.LVL103:
+ 314:application/chassis_task.c **** 
+ 315:application/chassis_task.c ****     /* ---------- 1. 双板链路解析 ---------- */
+ 316:application/chassis_task.c ****     VisionLink_Poll();
+ 934              		.loc 1 316 5 is_stmt 1 view .LVU264
+ 935 000c FFF7FEFF 		bl	VisionLink_Poll
+ 936              	.LVL104:
+ 317:application/chassis_task.c **** 
+ 318:application/chassis_task.c ****     /* ---------- 2. 超声波（内部按 60 ms 节流触发） ---------- */
+ 319:application/chassis_task.c ****     DistanceSensor_Poll();
+ 937              		.loc 1 319 5 view .LVU265
+ 938 0010 FFF7FEFF 		bl	DistanceSensor_Poll
+ 939              	.LVL105:
+ 320:application/chassis_task.c **** 
+ 321:application/chassis_task.c ****     /* ---------- 3. 循迹采样 ---------- */
+ 322:application/chassis_task.c ****     LineSensor_Update();
+ 940              		.loc 1 322 5 view .LVU266
+ 941 0014 FFF7FEFF 		bl	LineSensor_Update
+ 942              	.LVL106:
+ 323:application/chassis_task.c **** 
+ 324:application/chassis_task.c ****     /* ---------- 4. 按键消抖与模式切换 ---------- */
+ 325:application/chassis_task.c ****     ChassisTask_PollKey(now_ms);
+ 943              		.loc 1 325 5 view .LVU267
+ 944 0018 2046     		mov	r0, r4
+ 945 001a FFF7FEFF 		bl	ChassisTask_PollKey
+ 946              	.LVL107:
+ 326:application/chassis_task.c **** 
+ 327:application/chassis_task.c ****     /* ---------- 5. 按模式分派 ---------- */
+ 328:application/chassis_task.c ****     switch (s_mode) {
+ 947              		.loc 1 328 5 view .LVU268
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 26
+
+
+ 948 001e 364B     		ldr	r3, .L81
+ 949 0020 1B78     		ldrb	r3, [r3]	@ zero_extendqisi2
+ 950 0022 3BB1     		cbz	r3, .L71
+ 951 0024 012B     		cmp	r3, #1
+ 952 0026 15D0     		beq	.L72
+ 329:application/chassis_task.c ****     case CHASSIS_MODE_LINE_TRACK:
+ 330:application/chassis_task.c ****         ChassisTask_UpdateLineTrack();
+ 331:application/chassis_task.c ****         break;
+ 332:application/chassis_task.c ****     case CHASSIS_MODE_FOLLOW:
+ 333:application/chassis_task.c ****         ChassisTask_UpdateFollow();
+ 334:application/chassis_task.c ****         break;
+ 335:application/chassis_task.c ****     default:
+ 336:application/chassis_task.c ****         s_mode = CHASSIS_MODE_LINE_TRACK;
+ 953              		.loc 1 336 9 view .LVU269
+ 954              		.loc 1 336 16 is_stmt 0 view .LVU270
+ 955 0028 334B     		ldr	r3, .L81
+ 956 002a 0022     		movs	r2, #0
+ 957 002c 1A70     		strb	r2, [r3]
+ 337:application/chassis_task.c ****         Motor_Stop();
+ 958              		.loc 1 337 9 is_stmt 1 view .LVU271
+ 959 002e FFF7FEFF 		bl	Motor_Stop
+ 960              	.LVL108:
+ 338:application/chassis_task.c ****         break;
+ 961              		.loc 1 338 9 view .LVU272
+ 962 0032 01E0     		b	.L74
+ 963              	.L71:
+ 330:application/chassis_task.c ****         break;
+ 964              		.loc 1 330 9 view .LVU273
+ 965 0034 FFF7FEFF 		bl	ChassisTask_UpdateLineTrack
+ 966              	.LVL109:
+ 331:application/chassis_task.c ****     case CHASSIS_MODE_FOLLOW:
+ 967              		.loc 1 331 9 view .LVU274
+ 968              	.L74:
+ 339:application/chassis_task.c ****     }
+ 340:application/chassis_task.c **** 
+ 341:application/chassis_task.c ****     /* ---------- 6. 节流显示 ---------- */
+ 342:application/chassis_task.c ****     if ((uint32_t)(now_ms - s_last_display_ms) >= CHASSIS_DISPLAY_PERIOD_MS) {
+ 969              		.loc 1 342 5 view .LVU275
+ 970              		.loc 1 342 27 is_stmt 0 view .LVU276
+ 971 0038 304B     		ldr	r3, .L81+4
+ 972 003a 1B68     		ldr	r3, [r3]
+ 973 003c E31A     		subs	r3, r4, r3
+ 974              		.loc 1 342 8 view .LVU277
+ 975 003e 632B     		cmp	r3, #99
+ 976 0040 0BD8     		bhi	.L79
+ 977              	.L75:
+ 343:application/chassis_task.c ****         s_last_display_ms = now_ms;
+ 344:application/chassis_task.c ****         ChassisTask_RefreshDisplay();
+ 345:application/chassis_task.c ****     }
+ 346:application/chassis_task.c **** 
+ 347:application/chassis_task.c ****     /* ---------- 7. 节流串口回传 ---------- */
+ 348:application/chassis_task.c ****     if ((uint32_t)(now_ms - s_last_debug_ms) >= CHASSIS_DEBUG_PERIOD_MS) {
+ 978              		.loc 1 348 5 is_stmt 1 view .LVU278
+ 979              		.loc 1 348 27 is_stmt 0 view .LVU279
+ 980 0042 2F4B     		ldr	r3, .L81+8
+ 981 0044 1B68     		ldr	r3, [r3]
+ 982 0046 E31A     		subs	r3, r4, r3
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 27
+
+
+ 983              		.loc 1 348 8 view .LVU280
+ 984 0048 B3F5FA7F 		cmp	r3, #500
+ 985 004c 0AD2     		bcs	.L80
+ 986              	.LVL110:
+ 987              	.L70:
+ 349:application/chassis_task.c ****         char text[144];
+ 350:application/chassis_task.c ****         LineSensor_t line = LineSensor_Get();
+ 351:application/chassis_task.c ****         DistanceSensor_t dist = DistanceSensor_Get();
+ 352:application/chassis_task.c ****         int16_t enc_left = BSP_Encoder_GetLeftDelta();
+ 353:application/chassis_task.c ****         int16_t enc_right = BSP_Encoder_GetRightDelta();
+ 354:application/chassis_task.c **** 
+ 355:application/chassis_task.c ****         s_last_debug_ms = now_ms;
+ 356:application/chassis_task.c ****         /* 用 snprintf 而不是 sprintf：这一行字段多，极端情况下（全是最长数�
+ 357:application/chassis_task.c ****          * 可能超出缓冲，sprintf 会直接越界踩栈。 */
+ 358:application/chassis_task.c ****         (void)snprintf(text, sizeof(text),
+ 359:application/chassis_task.c ****                       "C: mode=%d raw=%02X lost=%d out=%d/%d dev=%d link=%d "
+ 360:application/chassis_task.c ****                       "dist=%u/%u us=%u enc=%d/%d err=%lu\r\n",
+ 361:application/chassis_task.c ****                       (int)s_mode,
+ 362:application/chassis_task.c ****                       (unsigned)line.raw_levels,
+ 363:application/chassis_task.c ****                       (int)line.lost,
+ 364:application/chassis_task.c ****                       (int)Motor_GetLeftOutput(),
+ 365:application/chassis_task.c ****                       (int)Motor_GetRightOutput(),
+ 366:application/chassis_task.c ****                       (int)VisionLink_GetYawDevTenthDeg(),
+ 367:application/chassis_task.c ****                       (int)VisionLink_IsFresh(),
+ 368:application/chassis_task.c ****                       (unsigned)dist.distance_cm,
+ 369:application/chassis_task.c ****                       (unsigned)dist.valid,
+ 370:application/chassis_task.c ****                       (unsigned)dist.echo_us,
+ 371:application/chassis_task.c ****                       (int)enc_left,
+ 372:application/chassis_task.c ****                       (int)enc_right,
+ 373:application/chassis_task.c ****                       (unsigned long)VisionLink_Get().checksum_error_count);
+ 374:application/chassis_task.c ****         BSP_UART_SendString(text);
+ 375:application/chassis_task.c ****     }
+ 376:application/chassis_task.c **** }
+ 988              		.loc 1 376 1 view .LVU281
+ 989 004e 45B0     		add	sp, sp, #276
+ 990              		.cfi_remember_state
+ 991              		.cfi_def_cfa_offset 36
+ 992              		@ sp needed
+ 993 0050 BDE8F08F 		pop	{r4, r5, r6, r7, r8, r9, r10, fp, pc}
+ 994              	.LVL111:
+ 995              	.L72:
+ 996              		.cfi_restore_state
+ 333:application/chassis_task.c ****         break;
+ 997              		.loc 1 333 9 is_stmt 1 view .LVU282
+ 998 0054 FFF7FEFF 		bl	ChassisTask_UpdateFollow
+ 999              	.LVL112:
+ 334:application/chassis_task.c ****     default:
+ 1000              		.loc 1 334 9 view .LVU283
+ 1001 0058 EEE7     		b	.L74
+ 1002              	.L79:
+ 343:application/chassis_task.c ****         ChassisTask_RefreshDisplay();
+ 1003              		.loc 1 343 9 view .LVU284
+ 343:application/chassis_task.c ****         ChassisTask_RefreshDisplay();
+ 1004              		.loc 1 343 27 is_stmt 0 view .LVU285
+ 1005 005a 284B     		ldr	r3, .L81+4
+ 1006 005c 1C60     		str	r4, [r3]
+ 344:application/chassis_task.c ****     }
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 28
+
+
+ 1007              		.loc 1 344 9 is_stmt 1 view .LVU286
+ 1008 005e FFF7FEFF 		bl	ChassisTask_RefreshDisplay
+ 1009              	.LVL113:
+ 1010 0062 EEE7     		b	.L75
+ 1011              	.L80:
+ 1012              	.LBB7:
+ 349:application/chassis_task.c ****         LineSensor_t line = LineSensor_Get();
+ 1013              		.loc 1 349 9 view .LVU287
+ 350:application/chassis_task.c ****         DistanceSensor_t dist = DistanceSensor_Get();
+ 1014              		.loc 1 350 9 view .LVU288
+ 350:application/chassis_task.c ****         DistanceSensor_t dist = DistanceSensor_Get();
+ 1015              		.loc 1 350 29 is_stmt 0 view .LVU289
+ 1016 0064 13A8     		add	r0, sp, #76
+ 1017 0066 FFF7FEFF 		bl	LineSensor_Get
+ 1018              	.LVL114:
+ 351:application/chassis_task.c ****         int16_t enc_left = BSP_Encoder_GetLeftDelta();
+ 1019              		.loc 1 351 9 is_stmt 1 view .LVU290
+ 351:application/chassis_task.c ****         int16_t enc_left = BSP_Encoder_GetLeftDelta();
+ 1020              		.loc 1 351 33 is_stmt 0 view .LVU291
+ 1021 006a 15A8     		add	r0, sp, #84
+ 1022 006c FFF7FEFF 		bl	DistanceSensor_Get
+ 1023              	.LVL115:
+ 352:application/chassis_task.c ****         int16_t enc_right = BSP_Encoder_GetRightDelta();
+ 1024              		.loc 1 352 9 is_stmt 1 view .LVU292
+ 352:application/chassis_task.c ****         int16_t enc_right = BSP_Encoder_GetRightDelta();
+ 1025              		.loc 1 352 28 is_stmt 0 view .LVU293
+ 1026 0070 FFF7FEFF 		bl	BSP_Encoder_GetLeftDelta
+ 1027              	.LVL116:
+ 1028 0074 0D90     		str	r0, [sp, #52]
+ 1029              	.LVL117:
+ 353:application/chassis_task.c **** 
+ 1030              		.loc 1 353 9 is_stmt 1 view .LVU294
+ 353:application/chassis_task.c **** 
+ 1031              		.loc 1 353 29 is_stmt 0 view .LVU295
+ 1032 0076 FFF7FEFF 		bl	BSP_Encoder_GetRightDelta
+ 1033              	.LVL118:
+ 1034 007a 8346     		mov	fp, r0
+ 1035              	.LVL119:
+ 355:application/chassis_task.c ****         /* 用 snprintf 而不是 sprintf：这一行字段多，极端情况下（全是最长数�
+ 1036              		.loc 1 355 9 is_stmt 1 view .LVU296
+ 355:application/chassis_task.c ****         /* 用 snprintf 而不是 sprintf：这一行字段多，极端情况下（全是最长数�
+ 1037              		.loc 1 355 25 is_stmt 0 view .LVU297
+ 1038 007c 204B     		ldr	r3, .L81+8
+ 1039 007e 1C60     		str	r4, [r3]
+ 358:application/chassis_task.c ****                       "C: mode=%d raw=%02X lost=%d out=%d/%d dev=%d link=%d "
+ 1040              		.loc 1 358 9 is_stmt 1 view .LVU298
+ 358:application/chassis_task.c ****                       "C: mode=%d raw=%02X lost=%d out=%d/%d dev=%d link=%d "
+ 1041              		.loc 1 358 15 is_stmt 0 view .LVU299
+ 1042 0080 1D4B     		ldr	r3, .L81
+ 1043 0082 1D78     		ldrb	r5, [r3]	@ zero_extendqisi2
+ 362:application/chassis_task.c ****                       (int)line.lost,
+ 1044              		.loc 1 362 37 view .LVU300
+ 1045 0084 9DF84C60 		ldrb	r6, [sp, #76]	@ zero_extendqisi2
+ 363:application/chassis_task.c ****                       (int)Motor_GetLeftOutput(),
+ 1046              		.loc 1 363 32 view .LVU301
+ 1047 0088 9DF85070 		ldrb	r7, [sp, #80]	@ zero_extendqisi2
+ 364:application/chassis_task.c ****                       (int)Motor_GetRightOutput(),
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 29
+
+
+ 1048              		.loc 1 364 28 view .LVU302
+ 1049 008c FFF7FEFF 		bl	Motor_GetLeftOutput
+ 1050              	.LVL120:
+ 1051 0090 0E90     		str	r0, [sp, #56]
+ 365:application/chassis_task.c ****                       (int)VisionLink_GetYawDevTenthDeg(),
+ 1052              		.loc 1 365 28 view .LVU303
+ 1053 0092 FFF7FEFF 		bl	Motor_GetRightOutput
+ 1054              	.LVL121:
+ 1055 0096 0F90     		str	r0, [sp, #60]
+ 366:application/chassis_task.c ****                       (int)VisionLink_IsFresh(),
+ 1056              		.loc 1 366 28 view .LVU304
+ 1057 0098 FFF7FEFF 		bl	VisionLink_GetYawDevTenthDeg
+ 1058              	.LVL122:
+ 1059 009c 1090     		str	r0, [sp, #64]
+ 367:application/chassis_task.c ****                       (unsigned)dist.distance_cm,
+ 1060              		.loc 1 367 28 view .LVU305
+ 1061 009e FFF7FEFF 		bl	VisionLink_IsFresh
+ 1062              	.LVL123:
+ 1063 00a2 1190     		str	r0, [sp, #68]
+ 368:application/chassis_task.c ****                       (unsigned)dist.valid,
+ 1064              		.loc 1 368 37 view .LVU306
+ 1065 00a4 BDF85480 		ldrh	r8, [sp, #84]
+ 369:application/chassis_task.c ****                       (unsigned)dist.echo_us,
+ 1066              		.loc 1 369 37 view .LVU307
+ 1067 00a8 9DF85890 		ldrb	r9, [sp, #88]	@ zero_extendqisi2
+ 370:application/chassis_task.c ****                       (int)enc_left,
+ 1068              		.loc 1 370 37 view .LVU308
+ 1069 00ac BDF856A0 		ldrh	r10, [sp, #86]
+ 373:application/chassis_task.c ****         BSP_UART_SendString(text);
+ 1070              		.loc 1 373 38 view .LVU309
+ 1071 00b0 3FA8     		add	r0, sp, #252
+ 1072 00b2 FFF7FEFF 		bl	VisionLink_Get
+ 1073              	.LVL124:
+ 358:application/chassis_task.c ****                       "C: mode=%d raw=%02X lost=%d out=%d/%d dev=%d link=%d "
+ 1074              		.loc 1 358 15 view .LVU310
+ 1075 00b6 1BAC     		add	r4, sp, #108
+ 1076              	.LVL125:
+ 358:application/chassis_task.c ****                       "C: mode=%d raw=%02X lost=%d out=%d/%d dev=%d link=%d "
+ 1077              		.loc 1 358 15 view .LVU311
+ 1078 00b8 429B     		ldr	r3, [sp, #264]
+ 1079 00ba 0B93     		str	r3, [sp, #44]
+ 1080 00bc CDF828B0 		str	fp, [sp, #40]
+ 1081 00c0 0D9B     		ldr	r3, [sp, #52]
+ 1082 00c2 0993     		str	r3, [sp, #36]
+ 1083 00c4 CDF820A0 		str	r10, [sp, #32]
+ 1084 00c8 CDF81C90 		str	r9, [sp, #28]
+ 1085 00cc CDF81880 		str	r8, [sp, #24]
+ 1086 00d0 119B     		ldr	r3, [sp, #68]
+ 1087 00d2 0593     		str	r3, [sp, #20]
+ 1088 00d4 109B     		ldr	r3, [sp, #64]
+ 1089 00d6 0493     		str	r3, [sp, #16]
+ 1090 00d8 0F9B     		ldr	r3, [sp, #60]
+ 1091 00da 0393     		str	r3, [sp, #12]
+ 1092 00dc 0E9B     		ldr	r3, [sp, #56]
+ 1093 00de 0293     		str	r3, [sp, #8]
+ 1094 00e0 0197     		str	r7, [sp, #4]
+ 1095 00e2 0096     		str	r6, [sp]
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 30
+
+
+ 1096 00e4 2B46     		mov	r3, r5
+ 1097 00e6 074A     		ldr	r2, .L81+12
+ 1098 00e8 9021     		movs	r1, #144
+ 1099 00ea 2046     		mov	r0, r4
+ 1100 00ec FFF7FEFF 		bl	snprintf
+ 1101              	.LVL126:
+ 374:application/chassis_task.c ****     }
+ 1102              		.loc 1 374 9 is_stmt 1 view .LVU312
+ 1103 00f0 2046     		mov	r0, r4
+ 1104 00f2 FFF7FEFF 		bl	BSP_UART_SendString
+ 1105              	.LVL127:
+ 1106              	.LBE7:
+ 1107              		.loc 1 376 1 is_stmt 0 view .LVU313
+ 1108 00f6 AAE7     		b	.L70
+ 1109              	.L82:
+ 1110              		.align	2
+ 1111              	.L81:
+ 1112 00f8 00000000 		.word	s_mode
+ 1113 00fc 00000000 		.word	s_last_display_ms
+ 1114 0100 00000000 		.word	s_last_debug_ms
+ 1115 0104 00000000 		.word	.LC9
+ 1116              		.cfi_endproc
+ 1117              	.LFE38:
+ 1119              		.section	.text.ChassisTask_GetMode,"ax",%progbits
+ 1120              		.align	1
+ 1121              		.global	ChassisTask_GetMode
+ 1122              		.syntax unified
+ 1123              		.thumb
+ 1124              		.thumb_func
+ 1126              	ChassisTask_GetMode:
+ 1127              	.LFB39:
+ 377:application/chassis_task.c **** 
+ 378:application/chassis_task.c **** ChassisMode_t ChassisTask_GetMode(void)
+ 379:application/chassis_task.c **** {
+ 1128              		.loc 1 379 1 is_stmt 1 view -0
+ 1129              		.cfi_startproc
+ 1130              		@ args = 0, pretend = 0, frame = 0
+ 1131              		@ frame_needed = 0, uses_anonymous_args = 0
+ 1132              		@ link register save eliminated.
+ 380:application/chassis_task.c ****     return s_mode;
+ 1133              		.loc 1 380 5 view .LVU315
+ 381:application/chassis_task.c **** }
+ 1134              		.loc 1 381 1 is_stmt 0 view .LVU316
+ 1135 0000 014B     		ldr	r3, .L84
+ 1136 0002 1878     		ldrb	r0, [r3]	@ zero_extendqisi2
+ 1137 0004 7047     		bx	lr
+ 1138              	.L85:
+ 1139 0006 00BF     		.align	2
+ 1140              	.L84:
+ 1141 0008 00000000 		.word	s_mode
+ 1142              		.cfi_endproc
+ 1143              	.LFE39:
+ 1145              		.section	.bss.s_key_last_change_ms,"aw",%nobits
+ 1146              		.align	2
+ 1149              	s_key_last_change_ms:
+ 1150 0000 00000000 		.space	4
+ 1151              		.section	.bss.s_key_stable_down,"aw",%nobits
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 31
+
+
+ 1154              	s_key_stable_down:
+ 1155 0000 00       		.space	1
+ 1156              		.section	.bss.s_key_last_raw,"aw",%nobits
+ 1159              	s_key_last_raw:
+ 1160 0000 00       		.space	1
+ 1161              		.section	.bss.s_last_debug_ms,"aw",%nobits
+ 1162              		.align	2
+ 1165              	s_last_debug_ms:
+ 1166 0000 00000000 		.space	4
+ 1167              		.section	.bss.s_last_display_ms,"aw",%nobits
+ 1168              		.align	2
+ 1171              	s_last_display_ms:
+ 1172 0000 00000000 		.space	4
+ 1173              		.section	.bss.s_mode,"aw",%nobits
+ 1176              	s_mode:
+ 1177 0000 00       		.space	1
+ 1178              		.text
+ 1179              	.Letext0:
+ 1180              		.file 2 "D:/Microsoft VS code/stm32tools/@xpack-dev-tools/arm-none-eabi-gcc/15.2.1-1.1.1/.content/
+ 1181              		.file 3 "D:/Microsoft VS code/stm32tools/@xpack-dev-tools/arm-none-eabi-gcc/15.2.1-1.1.1/.content/
+ 1182              		.file 4 "application/chassis_task.h"
+ 1183              		.file 5 "bsp/bsp_key.h"
+ 1184              		.file 6 "modules/distance_sensor.h"
+ 1185              		.file 7 "modules/line_sensor.h"
+ 1186              		.file 8 "modules/vision_link.h"
+ 1187              		.file 9 "modules/motor_driver.h"
+ 1188              		.file 10 "bsp/bsp_uart.h"
+ 1189              		.file 11 "bsp/bsp_encoder.h"
+ 1190              		.file 12 "modules/oled.h"
+ 1191              		.file 13 "D:/Microsoft VS code/stm32tools/@xpack-dev-tools/arm-none-eabi-gcc/15.2.1-1.1.1/.content
+ 1192              		.file 14 "System/Delay.h"
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 32
+
+
+DEFINED SYMBOLS
+                            *ABS*:00000000 chassis_task.c
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:19     .text.ChassisTask_PollKey:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:24     .text.ChassisTask_PollKey:00000000 ChassisTask_PollKey
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:122    .text.ChassisTask_PollKey:00000054 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:1159   .bss.s_key_last_raw:00000000 s_key_last_raw
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:1149   .bss.s_key_last_change_ms:00000000 s_key_last_change_ms
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:1154   .bss.s_key_stable_down:00000000 s_key_stable_down
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:1176   .bss.s_mode:00000000 s_mode
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:130    .text.ChassisTask_ShowPaddedLine:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:135    .text.ChassisTask_ShowPaddedLine:00000000 ChassisTask_ShowPaddedLine
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:220    .rodata.ChassisTask_RefreshDisplay.str1.4:00000000 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:248    .text.ChassisTask_RefreshDisplay:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:253    .text.ChassisTask_RefreshDisplay:00000000 ChassisTask_RefreshDisplay
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:500    .text.ChassisTask_RefreshDisplay:00000124 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:515    .text.ChassisTask_UpdateLineTrack:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:520    .text.ChassisTask_UpdateLineTrack:00000000 ChassisTask_UpdateLineTrack
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:541    .text.ChassisTask_UpdateFollow:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:546    .text.ChassisTask_UpdateFollow:00000000 ChassisTask_UpdateFollow
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:794    .text.ChassisTask_UpdateFollow:000000c8 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:800    .text.ChassisTask_Init:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:806    .text.ChassisTask_Init:00000000 ChassisTask_Init
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:887    .text.ChassisTask_Init:00000050 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:1171   .bss.s_last_display_ms:00000000 s_last_display_ms
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:1165   .bss.s_last_debug_ms:00000000 s_last_debug_ms
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:897    .rodata.ChassisTask_Loop.str1.4:00000000 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:902    .text.ChassisTask_Loop:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:908    .text.ChassisTask_Loop:00000000 ChassisTask_Loop
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:1112   .text.ChassisTask_Loop:000000f8 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:1120   .text.ChassisTask_GetMode:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:1126   .text.ChassisTask_GetMode:00000000 ChassisTask_GetMode
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:1141   .text.ChassisTask_GetMode:00000008 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:1146   .bss.s_key_last_change_ms:00000000 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:1155   .bss.s_key_stable_down:00000000 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:1160   .bss.s_key_last_raw:00000000 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:1162   .bss.s_last_debug_ms:00000000 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:1168   .bss.s_last_display_ms:00000000 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s:1177   .bss.s_mode:00000000 $d
+
+UNDEFINED SYMBOLS
+BSP_Key_IsDown
+Motor_Stop
+OLED_ShowString
+VisionLink_IsFresh
+LineSensor_Get
+DistanceSensor_IsValid
+DistanceSensor_GetCm
+sprintf
+Motor_GetLeftOutput
+OLED_ShowSignedNum
+Motor_GetRightOutput
+VisionLink_GetYawDevTenthDeg
+Motor_SetSpeed
+VisionLink_Get
+Motor_Init
+BSP_Encoder_Init
+LineSensor_Init
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccdKZ92p.s 			page 33
+
+
+BSP_Key_Init
+VisionLink_Init
+DistanceSensor_Init
+OLED_Init
+OLED_Clear
+Delay_GetMs
+VisionLink_Poll
+DistanceSensor_Poll
+LineSensor_Update
+DistanceSensor_Get
+BSP_Encoder_GetLeftDelta
+BSP_Encoder_GetRightDelta
+snprintf
+BSP_UART_SendString

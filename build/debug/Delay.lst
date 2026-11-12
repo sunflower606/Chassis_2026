@@ -1,0 +1,370 @@
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\cc9nSTdj.s 			page 1
+
+
+   1              		.cpu cortex-m3
+   2              		.arch armv7-m
+   3              		.fpu softvfp
+   4              		.eabi_attribute 20, 1
+   5              		.eabi_attribute 21, 1
+   6              		.eabi_attribute 23, 3
+   7              		.eabi_attribute 24, 1
+   8              		.eabi_attribute 25, 1
+   9              		.eabi_attribute 26, 1
+  10              		.eabi_attribute 30, 1
+  11              		.eabi_attribute 34, 1
+  12              		.eabi_attribute 18, 4
+  13              		.file	"Delay.c"
+  14              		.text
+  15              	.Ltext0:
+  16              		.cfi_sections	.debug_frame
+  17              		.file 1 "System/Delay.c"
+  18              		.section	.text.Delay_us,"ax",%progbits
+  19              		.align	1
+  20              		.global	Delay_us
+  21              		.syntax unified
+  22              		.thumb
+  23              		.thumb_func
+  25              	Delay_us:
+  26              	.LVL0:
+  27              	.LFB29:
+   1:System/Delay.c **** #include "stm32f10x.h"
+   2:System/Delay.c **** #include "Delay.h"
+   3:System/Delay.c **** 
+   4:System/Delay.c **** /* ============================================================================
+   5:System/Delay.c ****  * 毫秒时基
+   6:System/Delay.c ****  *
+   7:System/Delay.c ****  * 【为什么放在这里】
+   8:System/Delay.c ****  *
+   9:System/Delay.c ****  * 原来的做法是：主循环每轮读一次 SysTick->VAL，用先后读数之差累加毫秒�
+  10:System/Delay.c ****  * 但 Delay_us() 每次都会重装 SysTick 并清零计数器：
+  11:System/Delay.c ****  *
+  12:System/Delay.c ****  *      SysTick->LOAD = 72 * xus;
+  13:System/Delay.c ****  *      SysTick->VAL  = 0x00;      <-- 清零
+  14:System/Delay.c ****  *      ...
+  15:System/Delay.c ****  *      SysTick->CTRL = 0x00000004;  <-- 关闭（计数停在重装值附近）
+  16:System/Delay.c ****  *
+  17:System/Delay.c ****  * 所以每一轮结束时读到的 VAL 几乎一样（都在 ~72000 附近），
+  18:System/Delay.c ****  * 差值恒为 0 -> 毫秒时钟只在上电后跳一次，之后永远不动。
+  19:System/Delay.c ****  *
+  20:System/Delay.c ****  * 结果就是 Vision_IsTargetFresh() 的 300ms 超时判断恒成立：
+  21:System/Delay.c ****  * K230 断线/死机时云台不会判"丢失"，会继续用最后的坐标。
+  22:System/Delay.c ****  *
+  23:System/Delay.c ****  * 【现在的做法】
+  24:System/Delay.c ****  *
+  25:System/Delay.c ****  * 既然 Delay_us 自己知道"这次延了多久"，就在它内部直接记账，
+  26:System/Delay.c ****  * 不再去猜 SysTick 的当前值。延时行为本身完全没变，只在末尾多了几行累
+  27:System/Delay.c ****  *
+  28:System/Delay.c ****  * 【精度】
+  29:System/Delay.c ****  *
+  30:System/Delay.c ****  * 只统计 Delay_* 花掉的时间。主循环里其他阻塞（每 100ms 刷一次 OLED、
+  31:System/Delay.c ****  * 每 500ms 打一次串口）不计入，实测平均偏低约 6%。
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\cc9nSTdj.s 			page 2
+
+
+  32:System/Delay.c ****  * 对"300ms 没收到数据就判丢失"这种用途完全够用。
+  33:System/Delay.c ****  * ========================================================================== */
+  34:System/Delay.c **** 
+  35:System/Delay.c **** /* 已累计的毫秒数 */
+  36:System/Delay.c **** static volatile uint32_t s_tick_ms = 0;
+  37:System/Delay.c **** 
+  38:System/Delay.c **** /* 不足 1ms 的零头（微秒），攒够 1000 就进位 */
+  39:System/Delay.c **** static uint32_t s_us_pending = 0;
+  40:System/Delay.c **** 
+  41:System/Delay.c **** 
+  42:System/Delay.c **** /**
+  43:System/Delay.c ****   * @brief  微秒级延时
+  44:System/Delay.c ****   * @param  xus 延时时长，范围：0~233015
+  45:System/Delay.c ****   * @retval 无
+  46:System/Delay.c ****   */
+  47:System/Delay.c **** void Delay_us(uint32_t xus)
+  48:System/Delay.c **** {
+  28              		.loc 1 48 1 view -0
+  29              		.cfi_startproc
+  30              		@ args = 0, pretend = 0, frame = 0
+  31              		@ frame_needed = 0, uses_anonymous_args = 0
+  32              		@ link register save eliminated.
+  49:System/Delay.c **** 	SysTick->LOAD = 72 * xus;				//设置定时器重装值
+  33              		.loc 1 49 2 view .LVU1
+  34              		.loc 1 49 21 is_stmt 0 view .LVU2
+  35 0000 00EBC002 		add	r2, r0, r0, lsl #3
+  36 0004 D200     		lsls	r2, r2, #3
+  37              		.loc 1 49 16 view .LVU3
+  38 0006 4FF0E023 		mov	r3, #-536813568
+  39 000a 5A61     		str	r2, [r3, #20]
+  50:System/Delay.c **** 	SysTick->VAL = 0x00;					//清空当前计数值
+  40              		.loc 1 50 2 is_stmt 1 view .LVU4
+  41              		.loc 1 50 15 is_stmt 0 view .LVU5
+  42 000c 0022     		movs	r2, #0
+  43 000e 9A61     		str	r2, [r3, #24]
+  51:System/Delay.c **** 	SysTick->CTRL = 0x00000005;				//设置时钟源为HCLK，启动定时器
+  44              		.loc 1 51 2 is_stmt 1 view .LVU6
+  45              		.loc 1 51 16 is_stmt 0 view .LVU7
+  46 0010 0522     		movs	r2, #5
+  47 0012 1A61     		str	r2, [r3, #16]
+  52:System/Delay.c **** 	while(!(SysTick->CTRL & 0x00010000));	//等待计数到0
+  48              		.loc 1 52 2 is_stmt 1 view .LVU8
+  49              	.L2:
+  50              		.loc 1 52 8 discriminator 1 view .LVU9
+  51              		.loc 1 52 17 is_stmt 0 discriminator 1 view .LVU10
+  52 0014 4FF0E023 		mov	r3, #-536813568
+  53 0018 1B69     		ldr	r3, [r3, #16]
+  54              		.loc 1 52 8 discriminator 1 view .LVU11
+  55 001a 13F4803F 		tst	r3, #65536
+  56 001e F9D0     		beq	.L2
+  53:System/Delay.c **** 	SysTick->CTRL = 0x00000004;				//关闭定时器
+  57              		.loc 1 53 2 is_stmt 1 view .LVU12
+  58              		.loc 1 53 16 is_stmt 0 view .LVU13
+  59 0020 4FF0E023 		mov	r3, #-536813568
+  60 0024 0422     		movs	r2, #4
+  61 0026 1A61     		str	r2, [r3, #16]
+  54:System/Delay.c **** 
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\cc9nSTdj.s 			page 3
+
+
+  55:System/Delay.c **** 	/* ---- 记账：把这次延掉的微秒累加进毫秒时基 ----
+  56:System/Delay.c **** 	 * 这几行放在延时之后，不影响延时长度本身
+  57:System/Delay.c **** 	 * （10ms 的延时总共 720000 个周期，这几条指令约几十个周期，可忽略）。 
+  58:System/Delay.c **** 	s_us_pending += xus;
+  62              		.loc 1 58 2 is_stmt 1 view .LVU14
+  63              		.loc 1 58 15 is_stmt 0 view .LVU15
+  64 0028 0B4B     		ldr	r3, .L4
+  65 002a 1A68     		ldr	r2, [r3]
+  66 002c 1044     		add	r0, r0, r2
+  67              	.LVL1:
+  68              		.loc 1 58 15 view .LVU16
+  69 002e 1860     		str	r0, [r3]
+  59:System/Delay.c **** 	if (s_us_pending >= 1000u)
+  70              		.loc 1 59 2 is_stmt 1 view .LVU17
+  71              		.loc 1 59 5 is_stmt 0 view .LVU18
+  72 0030 B0F57A7F 		cmp	r0, #1000
+  73 0034 0FD3     		bcc	.L1
+  60:System/Delay.c **** 	{
+  61:System/Delay.c **** 		s_tick_ms   += s_us_pending / 1000u;
+  74              		.loc 1 61 3 is_stmt 1 view .LVU19
+  75              		.loc 1 61 31 is_stmt 0 view .LVU20
+  76 0036 094B     		ldr	r3, .L4+4
+  77 0038 A3FB0023 		umull	r2, r3, r3, r0
+  78 003c 4FEA931C 		lsr	ip, r3, #6
+  79              		.loc 1 61 15 view .LVU21
+  80 0040 0749     		ldr	r1, .L4+8
+  81 0042 0A68     		ldr	r2, [r1]
+  82 0044 02EB9313 		add	r3, r2, r3, lsr #6
+  83 0048 0B60     		str	r3, [r1]
+  62:System/Delay.c **** 		s_us_pending %= 1000u;
+  84              		.loc 1 62 3 is_stmt 1 view .LVU22
+  85              		.loc 1 62 16 is_stmt 0 view .LVU23
+  86 004a 4FF47A73 		mov	r3, #1000
+  87 004e 03FB1C00 		mls	r0, r3, ip, r0
+  88 0052 014B     		ldr	r3, .L4
+  89 0054 1860     		str	r0, [r3]
+  90              	.L1:
+  63:System/Delay.c **** 	}
+  64:System/Delay.c **** }
+  91              		.loc 1 64 1 view .LVU24
+  92 0056 7047     		bx	lr
+  93              	.L5:
+  94              		.align	2
+  95              	.L4:
+  96 0058 00000000 		.word	s_us_pending
+  97 005c D34D6210 		.word	274877907
+  98 0060 00000000 		.word	s_tick_ms
+  99              		.cfi_endproc
+ 100              	.LFE29:
+ 102              		.section	.text.Delay_ms,"ax",%progbits
+ 103              		.align	1
+ 104              		.global	Delay_ms
+ 105              		.syntax unified
+ 106              		.thumb
+ 107              		.thumb_func
+ 109              	Delay_ms:
+ 110              	.LVL2:
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\cc9nSTdj.s 			page 4
+
+
+ 111              	.LFB30:
+  65:System/Delay.c **** 
+  66:System/Delay.c **** /**
+  67:System/Delay.c ****   * @brief  毫秒级延时
+  68:System/Delay.c ****   * @param  xms 延时时长，范围：0~4294967295
+  69:System/Delay.c ****   * @retval 无
+  70:System/Delay.c ****   */
+  71:System/Delay.c **** void Delay_ms(uint32_t xms)
+  72:System/Delay.c **** {
+ 112              		.loc 1 72 1 is_stmt 1 view -0
+ 113              		.cfi_startproc
+ 114              		@ args = 0, pretend = 0, frame = 0
+ 115              		@ frame_needed = 0, uses_anonymous_args = 0
+ 116              		.loc 1 72 1 is_stmt 0 view .LVU26
+ 117 0000 10B5     		push	{r4, lr}
+ 118              		.cfi_def_cfa_offset 8
+ 119              		.cfi_offset 4, -8
+ 120              		.cfi_offset 14, -4
+  73:System/Delay.c **** 	while(xms--)
+ 121              		.loc 1 73 2 is_stmt 1 view .LVU27
+ 122              		.loc 1 73 7 is_stmt 0 view .LVU28
+ 123 0002 04E0     		b	.L7
+ 124              	.LVL3:
+ 125              	.L8:
+  74:System/Delay.c **** 	{
+  75:System/Delay.c **** 		Delay_us(1000);
+ 126              		.loc 1 75 3 is_stmt 1 view .LVU29
+ 127 0004 4FF47A70 		mov	r0, #1000
+ 128 0008 FFF7FEFF 		bl	Delay_us
+ 129              	.LVL4:
+  73:System/Delay.c **** 	while(xms--)
+ 130              		.loc 1 73 11 is_stmt 0 view .LVU30
+ 131 000c 2046     		mov	r0, r4
+ 132              	.LVL5:
+ 133              	.L7:
+  73:System/Delay.c **** 	while(xms--)
+ 134              		.loc 1 73 8 is_stmt 1 view .LVU31
+  73:System/Delay.c **** 	while(xms--)
+ 135              		.loc 1 73 11 is_stmt 0 view .LVU32
+ 136 000e 441E     		subs	r4, r0, #1
+ 137              	.LVL6:
+  73:System/Delay.c **** 	while(xms--)
+ 138              		.loc 1 73 8 view .LVU33
+ 139 0010 0028     		cmp	r0, #0
+ 140 0012 F7D1     		bne	.L8
+  76:System/Delay.c **** 	}
+  77:System/Delay.c **** }
+ 141              		.loc 1 77 1 view .LVU34
+ 142 0014 10BD     		pop	{r4, pc}
+ 143              		.loc 1 77 1 view .LVU35
+ 144              		.cfi_endproc
+ 145              	.LFE30:
+ 147              		.section	.text.Delay_s,"ax",%progbits
+ 148              		.align	1
+ 149              		.global	Delay_s
+ 150              		.syntax unified
+ 151              		.thumb
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\cc9nSTdj.s 			page 5
+
+
+ 152              		.thumb_func
+ 154              	Delay_s:
+ 155              	.LVL7:
+ 156              	.LFB31:
+  78:System/Delay.c ****  
+  79:System/Delay.c **** /**
+  80:System/Delay.c ****   * @brief  秒级延时
+  81:System/Delay.c ****   * @param  xs 延时时长，范围：0~4294967295
+  82:System/Delay.c ****   * @retval 无
+  83:System/Delay.c ****   */
+  84:System/Delay.c **** void Delay_s(uint32_t xs)
+  85:System/Delay.c **** {
+ 157              		.loc 1 85 1 is_stmt 1 view -0
+ 158              		.cfi_startproc
+ 159              		@ args = 0, pretend = 0, frame = 0
+ 160              		@ frame_needed = 0, uses_anonymous_args = 0
+ 161              		.loc 1 85 1 is_stmt 0 view .LVU37
+ 162 0000 10B5     		push	{r4, lr}
+ 163              		.cfi_def_cfa_offset 8
+ 164              		.cfi_offset 4, -8
+ 165              		.cfi_offset 14, -4
+  86:System/Delay.c **** 	while(xs--)
+ 166              		.loc 1 86 2 is_stmt 1 view .LVU38
+ 167              		.loc 1 86 7 is_stmt 0 view .LVU39
+ 168 0002 04E0     		b	.L11
+ 169              	.LVL8:
+ 170              	.L12:
+  87:System/Delay.c **** 	{
+  88:System/Delay.c **** 		Delay_ms(1000);
+ 171              		.loc 1 88 3 is_stmt 1 view .LVU40
+ 172 0004 4FF47A70 		mov	r0, #1000
+ 173 0008 FFF7FEFF 		bl	Delay_ms
+ 174              	.LVL9:
+  86:System/Delay.c **** 	while(xs--)
+ 175              		.loc 1 86 10 is_stmt 0 view .LVU41
+ 176 000c 2046     		mov	r0, r4
+ 177              	.LVL10:
+ 178              	.L11:
+  86:System/Delay.c **** 	while(xs--)
+ 179              		.loc 1 86 8 is_stmt 1 view .LVU42
+  86:System/Delay.c **** 	while(xs--)
+ 180              		.loc 1 86 10 is_stmt 0 view .LVU43
+ 181 000e 441E     		subs	r4, r0, #1
+ 182              	.LVL11:
+  86:System/Delay.c **** 	while(xs--)
+ 183              		.loc 1 86 8 view .LVU44
+ 184 0010 0028     		cmp	r0, #0
+ 185 0012 F7D1     		bne	.L12
+  89:System/Delay.c **** 	}
+  90:System/Delay.c **** } 
+ 186              		.loc 1 90 1 view .LVU45
+ 187 0014 10BD     		pop	{r4, pc}
+ 188              		.loc 1 90 1 view .LVU46
+ 189              		.cfi_endproc
+ 190              	.LFE31:
+ 192              		.section	.text.Delay_GetMs,"ax",%progbits
+ 193              		.align	1
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\cc9nSTdj.s 			page 6
+
+
+ 194              		.global	Delay_GetMs
+ 195              		.syntax unified
+ 196              		.thumb
+ 197              		.thumb_func
+ 199              	Delay_GetMs:
+ 200              	.LFB32:
+  91:System/Delay.c **** 
+  92:System/Delay.c **** /**
+  93:System/Delay.c ****   * @brief  取上电以来经过的毫秒数
+  94:System/Delay.c ****   * @retval 毫秒数（uint32_t，约 49.7 天回绕）
+  95:System/Delay.c ****   * @note   由 Delay_us() 内部累加，不依赖 SysTick->VAL 的差值
+  96:System/Delay.c ****   */
+  97:System/Delay.c **** uint32_t Delay_GetMs(void)
+  98:System/Delay.c **** {
+ 201              		.loc 1 98 1 is_stmt 1 view -0
+ 202              		.cfi_startproc
+ 203              		@ args = 0, pretend = 0, frame = 0
+ 204              		@ frame_needed = 0, uses_anonymous_args = 0
+ 205              		@ link register save eliminated.
+  99:System/Delay.c **** 	return s_tick_ms;
+ 206              		.loc 1 99 2 view .LVU48
+ 207              		.loc 1 99 9 is_stmt 0 view .LVU49
+ 208 0000 014B     		ldr	r3, .L15
+ 209 0002 1868     		ldr	r0, [r3]
+ 100:System/Delay.c **** }
+ 210              		.loc 1 100 1 view .LVU50
+ 211 0004 7047     		bx	lr
+ 212              	.L16:
+ 213 0006 00BF     		.align	2
+ 214              	.L15:
+ 215 0008 00000000 		.word	s_tick_ms
+ 216              		.cfi_endproc
+ 217              	.LFE32:
+ 219              		.section	.bss.s_us_pending,"aw",%nobits
+ 220              		.align	2
+ 223              	s_us_pending:
+ 224 0000 00000000 		.space	4
+ 225              		.section	.bss.s_tick_ms,"aw",%nobits
+ 226              		.align	2
+ 229              	s_tick_ms:
+ 230 0000 00000000 		.space	4
+ 231              		.text
+ 232              	.Letext0:
+ 233              		.file 2 "D:/Microsoft VS code/stm32tools/@xpack-dev-tools/arm-none-eabi-gcc/15.2.1-1.1.1/.content/
+ 234              		.file 3 "D:/Microsoft VS code/stm32tools/@xpack-dev-tools/arm-none-eabi-gcc/15.2.1-1.1.1/.content/
+ 235              		.file 4 "Drivers/CMSIS/core_cm3.h"
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\cc9nSTdj.s 			page 7
+
+
+DEFINED SYMBOLS
+                            *ABS*:00000000 Delay.c
+C:\Users\XIANGR~1\AppData\Local\Temp\cc9nSTdj.s:19     .text.Delay_us:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\cc9nSTdj.s:25     .text.Delay_us:00000000 Delay_us
+C:\Users\XIANGR~1\AppData\Local\Temp\cc9nSTdj.s:96     .text.Delay_us:00000058 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\cc9nSTdj.s:223    .bss.s_us_pending:00000000 s_us_pending
+C:\Users\XIANGR~1\AppData\Local\Temp\cc9nSTdj.s:229    .bss.s_tick_ms:00000000 s_tick_ms
+C:\Users\XIANGR~1\AppData\Local\Temp\cc9nSTdj.s:103    .text.Delay_ms:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\cc9nSTdj.s:109    .text.Delay_ms:00000000 Delay_ms
+C:\Users\XIANGR~1\AppData\Local\Temp\cc9nSTdj.s:148    .text.Delay_s:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\cc9nSTdj.s:154    .text.Delay_s:00000000 Delay_s
+C:\Users\XIANGR~1\AppData\Local\Temp\cc9nSTdj.s:193    .text.Delay_GetMs:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\cc9nSTdj.s:199    .text.Delay_GetMs:00000000 Delay_GetMs
+C:\Users\XIANGR~1\AppData\Local\Temp\cc9nSTdj.s:215    .text.Delay_GetMs:00000008 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\cc9nSTdj.s:220    .bss.s_us_pending:00000000 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\cc9nSTdj.s:226    .bss.s_tick_ms:00000000 $d
+
+NO UNDEFINED SYMBOLS

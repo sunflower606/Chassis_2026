@@ -1,0 +1,234 @@
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccTzZ6sp.s 			page 1
+
+
+   1              		.cpu cortex-m3
+   2              		.arch armv7-m
+   3              		.fpu softvfp
+   4              		.eabi_attribute 20, 1
+   5              		.eabi_attribute 21, 1
+   6              		.eabi_attribute 23, 3
+   7              		.eabi_attribute 24, 1
+   8              		.eabi_attribute 25, 1
+   9              		.eabi_attribute 26, 1
+  10              		.eabi_attribute 30, 1
+  11              		.eabi_attribute 34, 1
+  12              		.eabi_attribute 18, 4
+  13              		.file	"bsp_soft_i2c.c"
+  14              		.text
+  15              	.Ltext0:
+  16              		.cfi_sections	.debug_frame
+  17              		.file 1 "bsp/bsp_soft_i2c.c"
+  18              		.section	.text.BSP_SoftI2C_WriteScl,"ax",%progbits
+  19              		.align	1
+  20              		.global	BSP_SoftI2C_WriteScl
+  21              		.syntax unified
+  22              		.thumb
+  23              		.thumb_func
+  25              	BSP_SoftI2C_WriteScl:
+  26              	.LVL0:
+  27              	.LFB30:
+   1:bsp/bsp_soft_i2c.c **** #include "bsp_soft_i2c.h"
+   2:bsp/bsp_soft_i2c.c **** 
+   3:bsp/bsp_soft_i2c.c **** #include "board_config.h"
+   4:bsp/bsp_soft_i2c.c **** 
+   5:bsp/bsp_soft_i2c.c **** void BSP_SoftI2C_Init(void)
+   6:bsp/bsp_soft_i2c.c **** {
+   7:bsp/bsp_soft_i2c.c ****     GPIO_InitTypeDef gpio_init;
+   8:bsp/bsp_soft_i2c.c **** 
+   9:bsp/bsp_soft_i2c.c ****     RCC_APB2PeriphClockCmd(BOARD_OLED_GPIO_CLK, ENABLE);
+  10:bsp/bsp_soft_i2c.c **** 
+  11:bsp/bsp_soft_i2c.c ****     gpio_init.GPIO_Pin = BOARD_OLED_SCL_PIN | BOARD_OLED_SDA_PIN;
+  12:bsp/bsp_soft_i2c.c ****     gpio_init.GPIO_Mode = GPIO_Mode_Out_OD;   /* 开漏：I2C 的硬性要求 */
+  13:bsp/bsp_soft_i2c.c ****     gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
+  14:bsp/bsp_soft_i2c.c ****     GPIO_Init(BOARD_OLED_GPIO, &gpio_init);
+  15:bsp/bsp_soft_i2c.c **** 
+  16:bsp/bsp_soft_i2c.c ****     /* 释放总线，等上拉把两条线拉到高电平 */
+  17:bsp/bsp_soft_i2c.c ****     BSP_SoftI2C_WriteScl(1U);
+  18:bsp/bsp_soft_i2c.c ****     BSP_SoftI2C_WriteSda(1U);
+  19:bsp/bsp_soft_i2c.c **** }
+  20:bsp/bsp_soft_i2c.c **** 
+  21:bsp/bsp_soft_i2c.c **** void BSP_SoftI2C_WriteScl(uint8_t level)
+  22:bsp/bsp_soft_i2c.c **** {
+  28              		.loc 1 22 1 view -0
+  29              		.cfi_startproc
+  30              		@ args = 0, pretend = 0, frame = 0
+  31              		@ frame_needed = 0, uses_anonymous_args = 0
+  32              		.loc 1 22 1 is_stmt 0 view .LVU1
+  33 0000 08B5     		push	{r3, lr}
+  34              		.cfi_def_cfa_offset 8
+  35              		.cfi_offset 3, -8
+  36              		.cfi_offset 14, -4
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccTzZ6sp.s 			page 2
+
+
+  23:bsp/bsp_soft_i2c.c ****     GPIO_WriteBit(BOARD_OLED_GPIO, BOARD_OLED_SCL_PIN, (BitAction)(level ? Bit_SET : Bit_RESET));
+  37              		.loc 1 23 5 is_stmt 1 view .LVU2
+  38 0002 0246     		mov	r2, r0
+  39 0004 00B1     		cbz	r0, .L2
+  40              		.loc 1 23 5 is_stmt 0 discriminator 1 view .LVU3
+  41 0006 0122     		movs	r2, #1
+  42              	.L2:
+  43              		.loc 1 23 5 discriminator 4 view .LVU4
+  44 0008 4FF48071 		mov	r1, #256
+  45 000c 0148     		ldr	r0, .L4
+  46              	.LVL1:
+  47              		.loc 1 23 5 discriminator 4 view .LVU5
+  48 000e FFF7FEFF 		bl	GPIO_WriteBit
+  49              	.LVL2:
+  24:bsp/bsp_soft_i2c.c **** }
+  50              		.loc 1 24 1 view .LVU6
+  51 0012 08BD     		pop	{r3, pc}
+  52              	.L5:
+  53              		.align	2
+  54              	.L4:
+  55 0014 000C0140 		.word	1073810432
+  56              		.cfi_endproc
+  57              	.LFE30:
+  59              		.section	.text.BSP_SoftI2C_WriteSda,"ax",%progbits
+  60              		.align	1
+  61              		.global	BSP_SoftI2C_WriteSda
+  62              		.syntax unified
+  63              		.thumb
+  64              		.thumb_func
+  66              	BSP_SoftI2C_WriteSda:
+  67              	.LVL3:
+  68              	.LFB31:
+  25:bsp/bsp_soft_i2c.c **** 
+  26:bsp/bsp_soft_i2c.c **** void BSP_SoftI2C_WriteSda(uint8_t level)
+  27:bsp/bsp_soft_i2c.c **** {
+  69              		.loc 1 27 1 is_stmt 1 view -0
+  70              		.cfi_startproc
+  71              		@ args = 0, pretend = 0, frame = 0
+  72              		@ frame_needed = 0, uses_anonymous_args = 0
+  73              		.loc 1 27 1 is_stmt 0 view .LVU8
+  74 0000 08B5     		push	{r3, lr}
+  75              		.cfi_def_cfa_offset 8
+  76              		.cfi_offset 3, -8
+  77              		.cfi_offset 14, -4
+  28:bsp/bsp_soft_i2c.c ****     GPIO_WriteBit(BOARD_OLED_GPIO, BOARD_OLED_SDA_PIN, (BitAction)(level ? Bit_SET : Bit_RESET));
+  78              		.loc 1 28 5 is_stmt 1 view .LVU9
+  79 0002 0246     		mov	r2, r0
+  80 0004 00B1     		cbz	r0, .L7
+  81              		.loc 1 28 5 is_stmt 0 discriminator 1 view .LVU10
+  82 0006 0122     		movs	r2, #1
+  83              	.L7:
+  84              		.loc 1 28 5 discriminator 4 view .LVU11
+  85 0008 4FF40071 		mov	r1, #512
+  86 000c 0148     		ldr	r0, .L9
+  87              	.LVL4:
+  88              		.loc 1 28 5 discriminator 4 view .LVU12
+  89 000e FFF7FEFF 		bl	GPIO_WriteBit
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccTzZ6sp.s 			page 3
+
+
+  90              	.LVL5:
+  29:bsp/bsp_soft_i2c.c **** }
+  91              		.loc 1 29 1 view .LVU13
+  92 0012 08BD     		pop	{r3, pc}
+  93              	.L10:
+  94              		.align	2
+  95              	.L9:
+  96 0014 000C0140 		.word	1073810432
+  97              		.cfi_endproc
+  98              	.LFE31:
+ 100              		.section	.text.BSP_SoftI2C_Init,"ax",%progbits
+ 101              		.align	1
+ 102              		.global	BSP_SoftI2C_Init
+ 103              		.syntax unified
+ 104              		.thumb
+ 105              		.thumb_func
+ 107              	BSP_SoftI2C_Init:
+ 108              	.LFB29:
+   6:bsp/bsp_soft_i2c.c ****     GPIO_InitTypeDef gpio_init;
+ 109              		.loc 1 6 1 is_stmt 1 view -0
+ 110              		.cfi_startproc
+ 111              		@ args = 0, pretend = 0, frame = 8
+ 112              		@ frame_needed = 0, uses_anonymous_args = 0
+ 113 0000 00B5     		push	{lr}
+ 114              		.cfi_def_cfa_offset 4
+ 115              		.cfi_offset 14, -4
+ 116 0002 83B0     		sub	sp, sp, #12
+ 117              		.cfi_def_cfa_offset 16
+   7:bsp/bsp_soft_i2c.c **** 
+ 118              		.loc 1 7 5 view .LVU15
+   9:bsp/bsp_soft_i2c.c **** 
+ 119              		.loc 1 9 5 view .LVU16
+ 120 0004 0121     		movs	r1, #1
+ 121 0006 0820     		movs	r0, #8
+ 122 0008 FFF7FEFF 		bl	RCC_APB2PeriphClockCmd
+ 123              	.LVL6:
+  11:bsp/bsp_soft_i2c.c ****     gpio_init.GPIO_Mode = GPIO_Mode_Out_OD;   /* 开漏：I2C 的硬性要求 */
+ 124              		.loc 1 11 5 view .LVU17
+  11:bsp/bsp_soft_i2c.c ****     gpio_init.GPIO_Mode = GPIO_Mode_Out_OD;   /* 开漏：I2C 的硬性要求 */
+ 125              		.loc 1 11 24 is_stmt 0 view .LVU18
+ 126 000c 4FF44073 		mov	r3, #768
+ 127 0010 ADF80430 		strh	r3, [sp, #4]	@ movhi
+  12:bsp/bsp_soft_i2c.c ****     gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
+ 128              		.loc 1 12 5 is_stmt 1 view .LVU19
+  12:bsp/bsp_soft_i2c.c ****     gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
+ 129              		.loc 1 12 25 is_stmt 0 view .LVU20
+ 130 0014 1423     		movs	r3, #20
+ 131 0016 8DF80730 		strb	r3, [sp, #7]
+  13:bsp/bsp_soft_i2c.c ****     GPIO_Init(BOARD_OLED_GPIO, &gpio_init);
+ 132              		.loc 1 13 5 is_stmt 1 view .LVU21
+  13:bsp/bsp_soft_i2c.c ****     GPIO_Init(BOARD_OLED_GPIO, &gpio_init);
+ 133              		.loc 1 13 26 is_stmt 0 view .LVU22
+ 134 001a 0323     		movs	r3, #3
+ 135 001c 8DF80630 		strb	r3, [sp, #6]
+  14:bsp/bsp_soft_i2c.c **** 
+ 136              		.loc 1 14 5 is_stmt 1 view .LVU23
+ 137 0020 01A9     		add	r1, sp, #4
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccTzZ6sp.s 			page 4
+
+
+ 138 0022 0548     		ldr	r0, .L13
+ 139 0024 FFF7FEFF 		bl	GPIO_Init
+ 140              	.LVL7:
+  17:bsp/bsp_soft_i2c.c ****     BSP_SoftI2C_WriteSda(1U);
+ 141              		.loc 1 17 5 view .LVU24
+ 142 0028 0120     		movs	r0, #1
+ 143 002a FFF7FEFF 		bl	BSP_SoftI2C_WriteScl
+ 144              	.LVL8:
+  18:bsp/bsp_soft_i2c.c **** }
+ 145              		.loc 1 18 5 view .LVU25
+ 146 002e 0120     		movs	r0, #1
+ 147 0030 FFF7FEFF 		bl	BSP_SoftI2C_WriteSda
+ 148              	.LVL9:
+  19:bsp/bsp_soft_i2c.c **** 
+ 149              		.loc 1 19 1 is_stmt 0 view .LVU26
+ 150 0034 03B0     		add	sp, sp, #12
+ 151              		.cfi_def_cfa_offset 4
+ 152              		@ sp needed
+ 153 0036 00BD     		pop	{pc}
+ 154              	.L14:
+ 155              		.align	2
+ 156              	.L13:
+ 157 0038 000C0140 		.word	1073810432
+ 158              		.cfi_endproc
+ 159              	.LFE29:
+ 161              		.text
+ 162              	.Letext0:
+ 163              		.file 2 "D:/Microsoft VS code/stm32tools/@xpack-dev-tools/arm-none-eabi-gcc/15.2.1-1.1.1/.content/
+ 164              		.file 3 "D:/Microsoft VS code/stm32tools/@xpack-dev-tools/arm-none-eabi-gcc/15.2.1-1.1.1/.content/
+ 165              		.file 4 "Drivers/CMSIS/stm32f10x.h"
+ 166              		.file 5 "Drivers/STM32F10x_StdPeriph_Driver/inc/stm32f10x_gpio.h"
+ 167              		.file 6 "Drivers/STM32F10x_StdPeriph_Driver/inc/stm32f10x_rcc.h"
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccTzZ6sp.s 			page 5
+
+
+DEFINED SYMBOLS
+                            *ABS*:00000000 bsp_soft_i2c.c
+C:\Users\XIANGR~1\AppData\Local\Temp\ccTzZ6sp.s:19     .text.BSP_SoftI2C_WriteScl:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccTzZ6sp.s:25     .text.BSP_SoftI2C_WriteScl:00000000 BSP_SoftI2C_WriteScl
+C:\Users\XIANGR~1\AppData\Local\Temp\ccTzZ6sp.s:55     .text.BSP_SoftI2C_WriteScl:00000014 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccTzZ6sp.s:60     .text.BSP_SoftI2C_WriteSda:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccTzZ6sp.s:66     .text.BSP_SoftI2C_WriteSda:00000000 BSP_SoftI2C_WriteSda
+C:\Users\XIANGR~1\AppData\Local\Temp\ccTzZ6sp.s:96     .text.BSP_SoftI2C_WriteSda:00000014 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccTzZ6sp.s:101    .text.BSP_SoftI2C_Init:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccTzZ6sp.s:107    .text.BSP_SoftI2C_Init:00000000 BSP_SoftI2C_Init
+C:\Users\XIANGR~1\AppData\Local\Temp\ccTzZ6sp.s:157    .text.BSP_SoftI2C_Init:00000038 $d
+
+UNDEFINED SYMBOLS
+GPIO_WriteBit
+RCC_APB2PeriphClockCmd
+GPIO_Init

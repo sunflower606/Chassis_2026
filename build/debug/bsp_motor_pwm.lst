@@ -1,0 +1,913 @@
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s 			page 1
+
+
+   1              		.cpu cortex-m3
+   2              		.arch armv7-m
+   3              		.fpu softvfp
+   4              		.eabi_attribute 20, 1
+   5              		.eabi_attribute 21, 1
+   6              		.eabi_attribute 23, 3
+   7              		.eabi_attribute 24, 1
+   8              		.eabi_attribute 25, 1
+   9              		.eabi_attribute 26, 1
+  10              		.eabi_attribute 30, 1
+  11              		.eabi_attribute 34, 1
+  12              		.eabi_attribute 18, 4
+  13              		.file	"bsp_motor_pwm.c"
+  14              		.text
+  15              	.Ltext0:
+  16              		.cfi_sections	.debug_frame
+  17              		.file 1 "bsp/bsp_motor_pwm.c"
+  18              		.section	.text.BSP_Motor_Clamp,"ax",%progbits
+  19              		.align	1
+  20              		.syntax unified
+  21              		.thumb
+  22              		.thumb_func
+  24              	BSP_Motor_Clamp:
+  25              	.LVL0:
+  26              	.LFB29:
+   1:bsp/bsp_motor_pwm.c **** #include "bsp_motor_pwm.h"
+   2:bsp/bsp_motor_pwm.c **** 
+   3:bsp/bsp_motor_pwm.c **** #include "board_config.h"
+   4:bsp/bsp_motor_pwm.c **** 
+   5:bsp/bsp_motor_pwm.c **** /* 把带符号速度夹到 [-DUTY_MAX, +DUTY_MAX] */
+   6:bsp/bsp_motor_pwm.c **** static int16_t BSP_Motor_Clamp(int16_t speed_per_mille)
+   7:bsp/bsp_motor_pwm.c **** {
+  27              		.loc 1 7 1 view -0
+  28              		.cfi_startproc
+  29              		@ args = 0, pretend = 0, frame = 0
+  30              		@ frame_needed = 0, uses_anonymous_args = 0
+  31              		@ link register save eliminated.
+   8:bsp/bsp_motor_pwm.c ****     if (speed_per_mille > (int16_t)BOARD_MOTOR_DUTY_MAX) {
+  32              		.loc 1 8 5 view .LVU1
+  33              		.loc 1 8 8 is_stmt 0 view .LVU2
+  34 0000 B0F57A7F 		cmp	r0, #1000
+  35 0004 03DC     		bgt	.L3
+   9:bsp/bsp_motor_pwm.c ****         return (int16_t)BOARD_MOTOR_DUTY_MAX;
+  10:bsp/bsp_motor_pwm.c ****     }
+  11:bsp/bsp_motor_pwm.c ****     if (speed_per_mille < -(int16_t)BOARD_MOTOR_DUTY_MAX) {
+  36              		.loc 1 11 5 is_stmt 1 view .LVU3
+  37              		.loc 1 11 8 is_stmt 0 view .LVU4
+  38 0006 10F57A7F 		cmn	r0, #1000
+  39 000a 03DB     		blt	.L4
+  40 000c 7047     		bx	lr
+  41              	.L3:
+   9:bsp/bsp_motor_pwm.c ****         return (int16_t)BOARD_MOTOR_DUTY_MAX;
+  42              		.loc 1 9 16 view .LVU5
+  43 000e 4FF47A70 		mov	r0, #1000
+  44              	.LVL1:
+   9:bsp/bsp_motor_pwm.c ****         return (int16_t)BOARD_MOTOR_DUTY_MAX;
+  45              		.loc 1 9 16 view .LVU6
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s 			page 2
+
+
+  46 0012 7047     		bx	lr
+  47              	.LVL2:
+  48              	.L4:
+  12:bsp/bsp_motor_pwm.c ****         return -(int16_t)BOARD_MOTOR_DUTY_MAX;
+  49              		.loc 1 12 16 view .LVU7
+  50 0014 0048     		ldr	r0, .L5
+  51              	.LVL3:
+  13:bsp/bsp_motor_pwm.c ****     }
+  14:bsp/bsp_motor_pwm.c **** 
+  15:bsp/bsp_motor_pwm.c ****     return speed_per_mille;
+  16:bsp/bsp_motor_pwm.c **** }
+  52              		.loc 1 16 1 view .LVU8
+  53 0016 7047     		bx	lr
+  54              	.L6:
+  55              		.align	2
+  56              	.L5:
+  57 0018 18FCFFFF 		.word	-1000
+  58              		.cfi_endproc
+  59              	.LFE29:
+  61              		.section	.text.BSP_Motor_PwmPinInit,"ax",%progbits
+  62              		.align	1
+  63              		.syntax unified
+  64              		.thumb
+  65              		.thumb_func
+  67              	BSP_Motor_PwmPinInit:
+  68              	.LVL4:
+  69              	.LFB31:
+  17:bsp/bsp_motor_pwm.c **** 
+  18:bsp/bsp_motor_pwm.c **** /* 方向脚 / STBY：普通推挽输出 */
+  19:bsp/bsp_motor_pwm.c **** static void BSP_Motor_OutPinInit(GPIO_TypeDef *gpio, uint16_t pin)
+  20:bsp/bsp_motor_pwm.c **** {
+  21:bsp/bsp_motor_pwm.c ****     GPIO_InitTypeDef init;
+  22:bsp/bsp_motor_pwm.c **** 
+  23:bsp/bsp_motor_pwm.c ****     init.GPIO_Pin = pin;
+  24:bsp/bsp_motor_pwm.c ****     init.GPIO_Mode = GPIO_Mode_Out_PP;
+  25:bsp/bsp_motor_pwm.c ****     init.GPIO_Speed = GPIO_Speed_50MHz;
+  26:bsp/bsp_motor_pwm.c ****     GPIO_Init(gpio, &init);
+  27:bsp/bsp_motor_pwm.c **** }
+  28:bsp/bsp_motor_pwm.c **** 
+  29:bsp/bsp_motor_pwm.c **** /* PWM 脚：复用推挽输出 */
+  30:bsp/bsp_motor_pwm.c **** static void BSP_Motor_PwmPinInit(GPIO_TypeDef *gpio, uint16_t pin)
+  31:bsp/bsp_motor_pwm.c **** {
+  70              		.loc 1 31 1 is_stmt 1 view -0
+  71              		.cfi_startproc
+  72              		@ args = 0, pretend = 0, frame = 8
+  73              		@ frame_needed = 0, uses_anonymous_args = 0
+  74              		.loc 1 31 1 is_stmt 0 view .LVU10
+  75 0000 00B5     		push	{lr}
+  76              		.cfi_def_cfa_offset 4
+  77              		.cfi_offset 14, -4
+  78 0002 83B0     		sub	sp, sp, #12
+  79              		.cfi_def_cfa_offset 16
+  32:bsp/bsp_motor_pwm.c ****     GPIO_InitTypeDef init;
+  80              		.loc 1 32 5 is_stmt 1 view .LVU11
+  33:bsp/bsp_motor_pwm.c **** 
+  34:bsp/bsp_motor_pwm.c ****     init.GPIO_Pin = pin;
+  81              		.loc 1 34 5 view .LVU12
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s 			page 3
+
+
+  82              		.loc 1 34 19 is_stmt 0 view .LVU13
+  83 0004 ADF80410 		strh	r1, [sp, #4]	@ movhi
+  35:bsp/bsp_motor_pwm.c ****     init.GPIO_Mode = GPIO_Mode_AF_PP;
+  84              		.loc 1 35 5 is_stmt 1 view .LVU14
+  85              		.loc 1 35 20 is_stmt 0 view .LVU15
+  86 0008 1823     		movs	r3, #24
+  87 000a 8DF80730 		strb	r3, [sp, #7]
+  36:bsp/bsp_motor_pwm.c ****     init.GPIO_Speed = GPIO_Speed_50MHz;
+  88              		.loc 1 36 5 is_stmt 1 view .LVU16
+  89              		.loc 1 36 21 is_stmt 0 view .LVU17
+  90 000e 0323     		movs	r3, #3
+  91 0010 8DF80630 		strb	r3, [sp, #6]
+  37:bsp/bsp_motor_pwm.c ****     GPIO_Init(gpio, &init);
+  92              		.loc 1 37 5 is_stmt 1 view .LVU18
+  93 0014 01A9     		add	r1, sp, #4
+  94              	.LVL5:
+  95              		.loc 1 37 5 is_stmt 0 view .LVU19
+  96 0016 FFF7FEFF 		bl	GPIO_Init
+  97              	.LVL6:
+  38:bsp/bsp_motor_pwm.c **** }
+  98              		.loc 1 38 1 view .LVU20
+  99 001a 03B0     		add	sp, sp, #12
+ 100              		.cfi_def_cfa_offset 4
+ 101              		@ sp needed
+ 102 001c 00BD     		pop	{pc}
+ 103              		.cfi_endproc
+ 104              	.LFE31:
+ 106              		.section	.text.BSP_Motor_OutPinInit,"ax",%progbits
+ 107              		.align	1
+ 108              		.syntax unified
+ 109              		.thumb
+ 110              		.thumb_func
+ 112              	BSP_Motor_OutPinInit:
+ 113              	.LVL7:
+ 114              	.LFB30:
+  20:bsp/bsp_motor_pwm.c ****     GPIO_InitTypeDef init;
+ 115              		.loc 1 20 1 is_stmt 1 view -0
+ 116              		.cfi_startproc
+ 117              		@ args = 0, pretend = 0, frame = 8
+ 118              		@ frame_needed = 0, uses_anonymous_args = 0
+  20:bsp/bsp_motor_pwm.c ****     GPIO_InitTypeDef init;
+ 119              		.loc 1 20 1 is_stmt 0 view .LVU22
+ 120 0000 00B5     		push	{lr}
+ 121              		.cfi_def_cfa_offset 4
+ 122              		.cfi_offset 14, -4
+ 123 0002 83B0     		sub	sp, sp, #12
+ 124              		.cfi_def_cfa_offset 16
+  21:bsp/bsp_motor_pwm.c **** 
+ 125              		.loc 1 21 5 is_stmt 1 view .LVU23
+  23:bsp/bsp_motor_pwm.c ****     init.GPIO_Mode = GPIO_Mode_Out_PP;
+ 126              		.loc 1 23 5 view .LVU24
+  23:bsp/bsp_motor_pwm.c ****     init.GPIO_Mode = GPIO_Mode_Out_PP;
+ 127              		.loc 1 23 19 is_stmt 0 view .LVU25
+ 128 0004 ADF80410 		strh	r1, [sp, #4]	@ movhi
+  24:bsp/bsp_motor_pwm.c ****     init.GPIO_Speed = GPIO_Speed_50MHz;
+ 129              		.loc 1 24 5 is_stmt 1 view .LVU26
+  24:bsp/bsp_motor_pwm.c ****     init.GPIO_Speed = GPIO_Speed_50MHz;
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s 			page 4
+
+
+ 130              		.loc 1 24 20 is_stmt 0 view .LVU27
+ 131 0008 1023     		movs	r3, #16
+ 132 000a 8DF80730 		strb	r3, [sp, #7]
+  25:bsp/bsp_motor_pwm.c ****     GPIO_Init(gpio, &init);
+ 133              		.loc 1 25 5 is_stmt 1 view .LVU28
+  25:bsp/bsp_motor_pwm.c ****     GPIO_Init(gpio, &init);
+ 134              		.loc 1 25 21 is_stmt 0 view .LVU29
+ 135 000e 0323     		movs	r3, #3
+ 136 0010 8DF80630 		strb	r3, [sp, #6]
+  26:bsp/bsp_motor_pwm.c **** }
+ 137              		.loc 1 26 5 is_stmt 1 view .LVU30
+ 138 0014 01A9     		add	r1, sp, #4
+ 139              	.LVL8:
+  26:bsp/bsp_motor_pwm.c **** }
+ 140              		.loc 1 26 5 is_stmt 0 view .LVU31
+ 141 0016 FFF7FEFF 		bl	GPIO_Init
+ 142              	.LVL9:
+  27:bsp/bsp_motor_pwm.c **** 
+ 143              		.loc 1 27 1 view .LVU32
+ 144 001a 03B0     		add	sp, sp, #12
+ 145              		.cfi_def_cfa_offset 4
+ 146              		@ sp needed
+ 147 001c 00BD     		pop	{pc}
+ 148              		.cfi_endproc
+ 149              	.LFE30:
+ 151              		.section	.text.BSP_Motor_SetLeft,"ax",%progbits
+ 152              		.align	1
+ 153              		.global	BSP_Motor_SetLeft
+ 154              		.syntax unified
+ 155              		.thumb
+ 156              		.thumb_func
+ 158              	BSP_Motor_SetLeft:
+ 159              	.LVL10:
+ 160              	.LFB33:
+  39:bsp/bsp_motor_pwm.c **** 
+  40:bsp/bsp_motor_pwm.c **** void BSP_Motor_Init(void)
+  41:bsp/bsp_motor_pwm.c **** {
+  42:bsp/bsp_motor_pwm.c ****     TIM_TimeBaseInitTypeDef time_base;
+  43:bsp/bsp_motor_pwm.c ****     TIM_OCInitTypeDef oc_init;
+  44:bsp/bsp_motor_pwm.c **** 
+  45:bsp/bsp_motor_pwm.c ****     RCC_APB1PeriphClockCmd(BOARD_MOTOR_TIM_CLK, ENABLE);
+  46:bsp/bsp_motor_pwm.c ****     RCC_APB2PeriphClockCmd(BOARD_TB6612_GPIOA_CLK | BOARD_TB6612_GPIOB_CLK, ENABLE);
+  47:bsp/bsp_motor_pwm.c **** 
+  48:bsp/bsp_motor_pwm.c ****     /* 两个调速脚 */
+  49:bsp/bsp_motor_pwm.c ****     BSP_Motor_PwmPinInit(BOARD_TB6612_PWMA_GPIO, BOARD_TB6612_PWMA_PIN);
+  50:bsp/bsp_motor_pwm.c ****     BSP_Motor_PwmPinInit(BOARD_TB6612_PWMB_GPIO, BOARD_TB6612_PWMB_PIN);
+  51:bsp/bsp_motor_pwm.c **** 
+  52:bsp/bsp_motor_pwm.c ****     /* 四个方向脚 + STBY */
+  53:bsp/bsp_motor_pwm.c ****     BSP_Motor_OutPinInit(BOARD_TB6612_AIN1_GPIO, BOARD_TB6612_AIN1_PIN);
+  54:bsp/bsp_motor_pwm.c ****     BSP_Motor_OutPinInit(BOARD_TB6612_AIN2_GPIO, BOARD_TB6612_AIN2_PIN);
+  55:bsp/bsp_motor_pwm.c ****     BSP_Motor_OutPinInit(BOARD_TB6612_BIN1_GPIO, BOARD_TB6612_BIN1_PIN);
+  56:bsp/bsp_motor_pwm.c ****     BSP_Motor_OutPinInit(BOARD_TB6612_BIN2_GPIO, BOARD_TB6612_BIN2_PIN);
+  57:bsp/bsp_motor_pwm.c ****     BSP_Motor_OutPinInit(BOARD_TB6612_STBY_GPIO, BOARD_TB6612_STBY_PIN);
+  58:bsp/bsp_motor_pwm.c **** 
+  59:bsp/bsp_motor_pwm.c ****     /* STBY 拉高：不拉高整片待机，PWM 给多少都不转（最容易漏的一根线） *
+  60:bsp/bsp_motor_pwm.c ****     GPIO_WriteBit(BOARD_TB6612_STBY_GPIO, BOARD_TB6612_STBY_PIN, Bit_SET);
+  61:bsp/bsp_motor_pwm.c **** 
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s 			page 5
+
+
+  62:bsp/bsp_motor_pwm.c ****     TIM_InternalClockConfig(BOARD_MOTOR_TIM);
+  63:bsp/bsp_motor_pwm.c **** 
+  64:bsp/bsp_motor_pwm.c ****     time_base.TIM_ClockDivision = TIM_CKD_DIV1;
+  65:bsp/bsp_motor_pwm.c ****     time_base.TIM_CounterMode = TIM_CounterMode_Up;
+  66:bsp/bsp_motor_pwm.c ****     time_base.TIM_Prescaler = BOARD_MOTOR_TIM_PRESCALER;
+  67:bsp/bsp_motor_pwm.c ****     time_base.TIM_Period = BOARD_MOTOR_TIM_PERIOD;
+  68:bsp/bsp_motor_pwm.c ****     time_base.TIM_RepetitionCounter = 0U;
+  69:bsp/bsp_motor_pwm.c ****     TIM_TimeBaseInit(BOARD_MOTOR_TIM, &time_base);
+  70:bsp/bsp_motor_pwm.c **** 
+  71:bsp/bsp_motor_pwm.c ****     TIM_OCStructInit(&oc_init);
+  72:bsp/bsp_motor_pwm.c ****     oc_init.TIM_OCMode = TIM_OCMode_PWM1;
+  73:bsp/bsp_motor_pwm.c ****     oc_init.TIM_OCPolarity = TIM_OCPolarity_High;
+  74:bsp/bsp_motor_pwm.c ****     oc_init.TIM_OutputState = TIM_OutputState_Enable;
+  75:bsp/bsp_motor_pwm.c ****     oc_init.TIM_Pulse = 0U;
+  76:bsp/bsp_motor_pwm.c **** 
+  77:bsp/bsp_motor_pwm.c ****     /* CH1 -> PWMA，CH2 -> PWMB */
+  78:bsp/bsp_motor_pwm.c ****     TIM_OC1Init(BOARD_MOTOR_TIM, &oc_init);
+  79:bsp/bsp_motor_pwm.c ****     TIM_OC2Init(BOARD_MOTOR_TIM, &oc_init);
+  80:bsp/bsp_motor_pwm.c **** 
+  81:bsp/bsp_motor_pwm.c ****     TIM_OC1PreloadConfig(BOARD_MOTOR_TIM, TIM_OCPreload_Enable);
+  82:bsp/bsp_motor_pwm.c ****     TIM_OC2PreloadConfig(BOARD_MOTOR_TIM, TIM_OCPreload_Enable);
+  83:bsp/bsp_motor_pwm.c ****     TIM_ARRPreloadConfig(BOARD_MOTOR_TIM, ENABLE);
+  84:bsp/bsp_motor_pwm.c **** 
+  85:bsp/bsp_motor_pwm.c ****     TIM_Cmd(BOARD_MOTOR_TIM, ENABLE);
+  86:bsp/bsp_motor_pwm.c **** 
+  87:bsp/bsp_motor_pwm.c ****     /* 上电先滑行，避免上电瞬间车子窜出去 */
+  88:bsp/bsp_motor_pwm.c ****     BSP_Motor_Stop();
+  89:bsp/bsp_motor_pwm.c **** }
+  90:bsp/bsp_motor_pwm.c **** 
+  91:bsp/bsp_motor_pwm.c **** void BSP_Motor_SetLeft(int16_t speed_per_mille)
+  92:bsp/bsp_motor_pwm.c **** {
+ 161              		.loc 1 92 1 is_stmt 1 view -0
+ 162              		.cfi_startproc
+ 163              		@ args = 0, pretend = 0, frame = 0
+ 164              		@ frame_needed = 0, uses_anonymous_args = 0
+ 165              		.loc 1 92 1 is_stmt 0 view .LVU34
+ 166 0000 10B5     		push	{r4, lr}
+ 167              		.cfi_def_cfa_offset 8
+ 168              		.cfi_offset 4, -8
+ 169              		.cfi_offset 14, -4
+  93:bsp/bsp_motor_pwm.c ****     int16_t speed = BSP_Motor_Clamp(speed_per_mille);
+ 170              		.loc 1 93 5 is_stmt 1 view .LVU35
+ 171              		.loc 1 93 21 is_stmt 0 view .LVU36
+ 172 0002 FFF7FEFF 		bl	BSP_Motor_Clamp
+ 173              	.LVL11:
+  94:bsp/bsp_motor_pwm.c ****     uint16_t duty;
+ 174              		.loc 1 94 5 is_stmt 1 view .LVU37
+  95:bsp/bsp_motor_pwm.c **** 
+  96:bsp/bsp_motor_pwm.c ****     if (speed > 0) {
+ 175              		.loc 1 96 5 view .LVU38
+ 176              		.loc 1 96 8 is_stmt 0 view .LVU39
+ 177 0006 041E     		subs	r4, r0, #0
+ 178 0008 0DDC     		bgt	.L16
+  97:bsp/bsp_motor_pwm.c ****         /* A 通道正转：AIN1 高、AIN2 低 */
+  98:bsp/bsp_motor_pwm.c ****         GPIO_WriteBit(BOARD_TB6612_AIN1_GPIO, BOARD_TB6612_AIN1_PIN, Bit_SET);
+  99:bsp/bsp_motor_pwm.c ****         GPIO_WriteBit(BOARD_TB6612_AIN2_GPIO, BOARD_TB6612_AIN2_PIN, Bit_RESET);
+ 100:bsp/bsp_motor_pwm.c ****         duty = (uint16_t)speed;
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s 			page 6
+
+
+ 101:bsp/bsp_motor_pwm.c ****     } else if (speed < 0) {
+ 179              		.loc 1 101 12 is_stmt 1 view .LVU40
+ 180              		.loc 1 101 15 is_stmt 0 view .LVU41
+ 181 000a 002C     		cmp	r4, #0
+ 182 000c 1ADB     		blt	.L17
+ 102:bsp/bsp_motor_pwm.c ****         /* A 通道反转：AIN1 低、AIN2 高 */
+ 103:bsp/bsp_motor_pwm.c ****         GPIO_WriteBit(BOARD_TB6612_AIN1_GPIO, BOARD_TB6612_AIN1_PIN, Bit_RESET);
+ 104:bsp/bsp_motor_pwm.c ****         GPIO_WriteBit(BOARD_TB6612_AIN2_GPIO, BOARD_TB6612_AIN2_PIN, Bit_SET);
+ 105:bsp/bsp_motor_pwm.c ****         duty = (uint16_t)(-speed);
+ 106:bsp/bsp_motor_pwm.c ****     } else {
+ 107:bsp/bsp_motor_pwm.c ****         /* 滑行：两脚同低，H 桥关断 */
+ 108:bsp/bsp_motor_pwm.c ****         GPIO_WriteBit(BOARD_TB6612_AIN1_GPIO, BOARD_TB6612_AIN1_PIN, Bit_RESET);
+ 183              		.loc 1 108 9 is_stmt 1 view .LVU42
+ 184 000e 0022     		movs	r2, #0
+ 185 0010 2021     		movs	r1, #32
+ 186 0012 1348     		ldr	r0, .L18
+ 187              	.LVL12:
+ 188              		.loc 1 108 9 is_stmt 0 view .LVU43
+ 189 0014 FFF7FEFF 		bl	GPIO_WriteBit
+ 190              	.LVL13:
+ 109:bsp/bsp_motor_pwm.c ****         GPIO_WriteBit(BOARD_TB6612_AIN2_GPIO, BOARD_TB6612_AIN2_PIN, Bit_RESET);
+ 191              		.loc 1 109 9 is_stmt 1 view .LVU44
+ 192 0018 0022     		movs	r2, #0
+ 193 001a 0121     		movs	r1, #1
+ 194 001c 1148     		ldr	r0, .L18+4
+ 195 001e FFF7FEFF 		bl	GPIO_WriteBit
+ 196              	.LVL14:
+ 110:bsp/bsp_motor_pwm.c ****         duty = 0U;
+ 197              		.loc 1 110 9 view .LVU45
+ 198              		.loc 1 110 14 is_stmt 0 view .LVU46
+ 199 0022 0021     		movs	r1, #0
+ 200 0024 0AE0     		b	.L13
+ 201              	.LVL15:
+ 202              	.L16:
+  98:bsp/bsp_motor_pwm.c ****         GPIO_WriteBit(BOARD_TB6612_AIN2_GPIO, BOARD_TB6612_AIN2_PIN, Bit_RESET);
+ 203              		.loc 1 98 9 is_stmt 1 view .LVU47
+ 204 0026 0122     		movs	r2, #1
+ 205 0028 2021     		movs	r1, #32
+ 206 002a 0D48     		ldr	r0, .L18
+ 207              	.LVL16:
+  98:bsp/bsp_motor_pwm.c ****         GPIO_WriteBit(BOARD_TB6612_AIN2_GPIO, BOARD_TB6612_AIN2_PIN, Bit_RESET);
+ 208              		.loc 1 98 9 is_stmt 0 view .LVU48
+ 209 002c FFF7FEFF 		bl	GPIO_WriteBit
+ 210              	.LVL17:
+  99:bsp/bsp_motor_pwm.c ****         duty = (uint16_t)speed;
+ 211              		.loc 1 99 9 is_stmt 1 view .LVU49
+ 212 0030 0022     		movs	r2, #0
+ 213 0032 0121     		movs	r1, #1
+ 214 0034 0B48     		ldr	r0, .L18+4
+ 215 0036 FFF7FEFF 		bl	GPIO_WriteBit
+ 216              	.LVL18:
+ 100:bsp/bsp_motor_pwm.c ****     } else if (speed < 0) {
+ 217              		.loc 1 100 9 view .LVU50
+ 100:bsp/bsp_motor_pwm.c ****     } else if (speed < 0) {
+ 218              		.loc 1 100 14 is_stmt 0 view .LVU51
+ 219 003a A1B2     		uxth	r1, r4
+ 220              	.LVL19:
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s 			page 7
+
+
+ 221              	.L13:
+ 111:bsp/bsp_motor_pwm.c ****     }
+ 112:bsp/bsp_motor_pwm.c **** 
+ 113:bsp/bsp_motor_pwm.c ****     TIM_SetCompare1(BOARD_MOTOR_TIM, duty);
+ 222              		.loc 1 113 5 is_stmt 1 view .LVU52
+ 223 003c 0A48     		ldr	r0, .L18+8
+ 224 003e FFF7FEFF 		bl	TIM_SetCompare1
+ 225              	.LVL20:
+ 114:bsp/bsp_motor_pwm.c **** }
+ 226              		.loc 1 114 1 is_stmt 0 view .LVU53
+ 227 0042 10BD     		pop	{r4, pc}
+ 228              	.LVL21:
+ 229              	.L17:
+ 103:bsp/bsp_motor_pwm.c ****         GPIO_WriteBit(BOARD_TB6612_AIN2_GPIO, BOARD_TB6612_AIN2_PIN, Bit_SET);
+ 230              		.loc 1 103 9 is_stmt 1 view .LVU54
+ 231 0044 0022     		movs	r2, #0
+ 232 0046 2021     		movs	r1, #32
+ 233 0048 0548     		ldr	r0, .L18
+ 234              	.LVL22:
+ 103:bsp/bsp_motor_pwm.c ****         GPIO_WriteBit(BOARD_TB6612_AIN2_GPIO, BOARD_TB6612_AIN2_PIN, Bit_SET);
+ 235              		.loc 1 103 9 is_stmt 0 view .LVU55
+ 236 004a FFF7FEFF 		bl	GPIO_WriteBit
+ 237              	.LVL23:
+ 104:bsp/bsp_motor_pwm.c ****         duty = (uint16_t)(-speed);
+ 238              		.loc 1 104 9 is_stmt 1 view .LVU56
+ 239 004e 0122     		movs	r2, #1
+ 240 0050 1146     		mov	r1, r2
+ 241 0052 0448     		ldr	r0, .L18+4
+ 242 0054 FFF7FEFF 		bl	GPIO_WriteBit
+ 243              	.LVL24:
+ 105:bsp/bsp_motor_pwm.c ****     } else {
+ 244              		.loc 1 105 9 view .LVU57
+ 105:bsp/bsp_motor_pwm.c ****     } else {
+ 245              		.loc 1 105 16 is_stmt 0 view .LVU58
+ 246 0058 A1B2     		uxth	r1, r4
+ 105:bsp/bsp_motor_pwm.c ****     } else {
+ 247              		.loc 1 105 14 view .LVU59
+ 248 005a 4942     		rsbs	r1, r1, #0
+ 249 005c 89B2     		uxth	r1, r1
+ 250              	.LVL25:
+ 105:bsp/bsp_motor_pwm.c ****     } else {
+ 251              		.loc 1 105 14 view .LVU60
+ 252 005e EDE7     		b	.L13
+ 253              	.L19:
+ 254              		.align	2
+ 255              	.L18:
+ 256 0060 00080140 		.word	1073809408
+ 257 0064 000C0140 		.word	1073810432
+ 258 0068 00040040 		.word	1073742848
+ 259              		.cfi_endproc
+ 260              	.LFE33:
+ 262              		.section	.text.BSP_Motor_SetRight,"ax",%progbits
+ 263              		.align	1
+ 264              		.global	BSP_Motor_SetRight
+ 265              		.syntax unified
+ 266              		.thumb
+ 267              		.thumb_func
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s 			page 8
+
+
+ 269              	BSP_Motor_SetRight:
+ 270              	.LVL26:
+ 271              	.LFB34:
+ 115:bsp/bsp_motor_pwm.c **** 
+ 116:bsp/bsp_motor_pwm.c **** void BSP_Motor_SetRight(int16_t speed_per_mille)
+ 117:bsp/bsp_motor_pwm.c **** {
+ 272              		.loc 1 117 1 is_stmt 1 view -0
+ 273              		.cfi_startproc
+ 274              		@ args = 0, pretend = 0, frame = 0
+ 275              		@ frame_needed = 0, uses_anonymous_args = 0
+ 276              		.loc 1 117 1 is_stmt 0 view .LVU62
+ 277 0000 10B5     		push	{r4, lr}
+ 278              		.cfi_def_cfa_offset 8
+ 279              		.cfi_offset 4, -8
+ 280              		.cfi_offset 14, -4
+ 118:bsp/bsp_motor_pwm.c ****     int16_t speed = BSP_Motor_Clamp(speed_per_mille);
+ 281              		.loc 1 118 5 is_stmt 1 view .LVU63
+ 282              		.loc 1 118 21 is_stmt 0 view .LVU64
+ 283 0002 FFF7FEFF 		bl	BSP_Motor_Clamp
+ 284              	.LVL27:
+ 119:bsp/bsp_motor_pwm.c ****     uint16_t duty;
+ 285              		.loc 1 119 5 is_stmt 1 view .LVU65
+ 120:bsp/bsp_motor_pwm.c **** 
+ 121:bsp/bsp_motor_pwm.c ****     if (speed > 0) {
+ 286              		.loc 1 121 5 view .LVU66
+ 287              		.loc 1 121 8 is_stmt 0 view .LVU67
+ 288 0006 041E     		subs	r4, r0, #0
+ 289 0008 0EDC     		bgt	.L25
+ 122:bsp/bsp_motor_pwm.c ****         /* B 通道正转：BIN1 高、BIN2 低 */
+ 123:bsp/bsp_motor_pwm.c ****         GPIO_WriteBit(BOARD_TB6612_BIN1_GPIO, BOARD_TB6612_BIN1_PIN, Bit_SET);
+ 124:bsp/bsp_motor_pwm.c ****         GPIO_WriteBit(BOARD_TB6612_BIN2_GPIO, BOARD_TB6612_BIN2_PIN, Bit_RESET);
+ 125:bsp/bsp_motor_pwm.c ****         duty = (uint16_t)speed;
+ 126:bsp/bsp_motor_pwm.c ****     } else if (speed < 0) {
+ 290              		.loc 1 126 12 is_stmt 1 view .LVU68
+ 291              		.loc 1 126 15 is_stmt 0 view .LVU69
+ 292 000a 002C     		cmp	r4, #0
+ 293 000c 1CDB     		blt	.L26
+ 127:bsp/bsp_motor_pwm.c ****         GPIO_WriteBit(BOARD_TB6612_BIN1_GPIO, BOARD_TB6612_BIN1_PIN, Bit_RESET);
+ 128:bsp/bsp_motor_pwm.c ****         GPIO_WriteBit(BOARD_TB6612_BIN2_GPIO, BOARD_TB6612_BIN2_PIN, Bit_SET);
+ 129:bsp/bsp_motor_pwm.c ****         duty = (uint16_t)(-speed);
+ 130:bsp/bsp_motor_pwm.c ****     } else {
+ 131:bsp/bsp_motor_pwm.c ****         GPIO_WriteBit(BOARD_TB6612_BIN1_GPIO, BOARD_TB6612_BIN1_PIN, Bit_RESET);
+ 294              		.loc 1 131 9 is_stmt 1 view .LVU70
+ 295 000e 0022     		movs	r2, #0
+ 296 0010 0221     		movs	r1, #2
+ 297 0012 1548     		ldr	r0, .L27
+ 298              	.LVL28:
+ 299              		.loc 1 131 9 is_stmt 0 view .LVU71
+ 300 0014 FFF7FEFF 		bl	GPIO_WriteBit
+ 301              	.LVL29:
+ 132:bsp/bsp_motor_pwm.c ****         GPIO_WriteBit(BOARD_TB6612_BIN2_GPIO, BOARD_TB6612_BIN2_PIN, Bit_RESET);
+ 302              		.loc 1 132 9 is_stmt 1 view .LVU72
+ 303 0018 0022     		movs	r2, #0
+ 304 001a 4FF48041 		mov	r1, #16384
+ 305 001e 1248     		ldr	r0, .L27
+ 306 0020 FFF7FEFF 		bl	GPIO_WriteBit
+ 307              	.LVL30:
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s 			page 9
+
+
+ 133:bsp/bsp_motor_pwm.c ****         duty = 0U;
+ 308              		.loc 1 133 9 view .LVU73
+ 309              		.loc 1 133 14 is_stmt 0 view .LVU74
+ 310 0024 0021     		movs	r1, #0
+ 311 0026 0BE0     		b	.L22
+ 312              	.LVL31:
+ 313              	.L25:
+ 123:bsp/bsp_motor_pwm.c ****         GPIO_WriteBit(BOARD_TB6612_BIN2_GPIO, BOARD_TB6612_BIN2_PIN, Bit_RESET);
+ 314              		.loc 1 123 9 is_stmt 1 view .LVU75
+ 315 0028 0122     		movs	r2, #1
+ 316 002a 0221     		movs	r1, #2
+ 317 002c 0E48     		ldr	r0, .L27
+ 318              	.LVL32:
+ 123:bsp/bsp_motor_pwm.c ****         GPIO_WriteBit(BOARD_TB6612_BIN2_GPIO, BOARD_TB6612_BIN2_PIN, Bit_RESET);
+ 319              		.loc 1 123 9 is_stmt 0 view .LVU76
+ 320 002e FFF7FEFF 		bl	GPIO_WriteBit
+ 321              	.LVL33:
+ 124:bsp/bsp_motor_pwm.c ****         duty = (uint16_t)speed;
+ 322              		.loc 1 124 9 is_stmt 1 view .LVU77
+ 323 0032 0022     		movs	r2, #0
+ 324 0034 4FF48041 		mov	r1, #16384
+ 325 0038 0B48     		ldr	r0, .L27
+ 326 003a FFF7FEFF 		bl	GPIO_WriteBit
+ 327              	.LVL34:
+ 125:bsp/bsp_motor_pwm.c ****     } else if (speed < 0) {
+ 328              		.loc 1 125 9 view .LVU78
+ 125:bsp/bsp_motor_pwm.c ****     } else if (speed < 0) {
+ 329              		.loc 1 125 14 is_stmt 0 view .LVU79
+ 330 003e A1B2     		uxth	r1, r4
+ 331              	.LVL35:
+ 332              	.L22:
+ 134:bsp/bsp_motor_pwm.c ****     }
+ 135:bsp/bsp_motor_pwm.c **** 
+ 136:bsp/bsp_motor_pwm.c ****     TIM_SetCompare2(BOARD_MOTOR_TIM, duty);
+ 333              		.loc 1 136 5 is_stmt 1 view .LVU80
+ 334 0040 0A48     		ldr	r0, .L27+4
+ 335 0042 FFF7FEFF 		bl	TIM_SetCompare2
+ 336              	.LVL36:
+ 137:bsp/bsp_motor_pwm.c **** }
+ 337              		.loc 1 137 1 is_stmt 0 view .LVU81
+ 338 0046 10BD     		pop	{r4, pc}
+ 339              	.LVL37:
+ 340              	.L26:
+ 127:bsp/bsp_motor_pwm.c ****         GPIO_WriteBit(BOARD_TB6612_BIN2_GPIO, BOARD_TB6612_BIN2_PIN, Bit_SET);
+ 341              		.loc 1 127 9 is_stmt 1 view .LVU82
+ 342 0048 0022     		movs	r2, #0
+ 343 004a 0221     		movs	r1, #2
+ 344 004c 0648     		ldr	r0, .L27
+ 345              	.LVL38:
+ 127:bsp/bsp_motor_pwm.c ****         GPIO_WriteBit(BOARD_TB6612_BIN2_GPIO, BOARD_TB6612_BIN2_PIN, Bit_SET);
+ 346              		.loc 1 127 9 is_stmt 0 view .LVU83
+ 347 004e FFF7FEFF 		bl	GPIO_WriteBit
+ 348              	.LVL39:
+ 128:bsp/bsp_motor_pwm.c ****         duty = (uint16_t)(-speed);
+ 349              		.loc 1 128 9 is_stmt 1 view .LVU84
+ 350 0052 0122     		movs	r2, #1
+ 351 0054 4FF48041 		mov	r1, #16384
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s 			page 10
+
+
+ 352 0058 0348     		ldr	r0, .L27
+ 353 005a FFF7FEFF 		bl	GPIO_WriteBit
+ 354              	.LVL40:
+ 129:bsp/bsp_motor_pwm.c ****     } else {
+ 355              		.loc 1 129 9 view .LVU85
+ 129:bsp/bsp_motor_pwm.c ****     } else {
+ 356              		.loc 1 129 16 is_stmt 0 view .LVU86
+ 357 005e A1B2     		uxth	r1, r4
+ 129:bsp/bsp_motor_pwm.c ****     } else {
+ 358              		.loc 1 129 14 view .LVU87
+ 359 0060 4942     		rsbs	r1, r1, #0
+ 360 0062 89B2     		uxth	r1, r1
+ 361              	.LVL41:
+ 129:bsp/bsp_motor_pwm.c ****     } else {
+ 362              		.loc 1 129 14 view .LVU88
+ 363 0064 ECE7     		b	.L22
+ 364              	.L28:
+ 365 0066 00BF     		.align	2
+ 366              	.L27:
+ 367 0068 000C0140 		.word	1073810432
+ 368 006c 00040040 		.word	1073742848
+ 369              		.cfi_endproc
+ 370              	.LFE34:
+ 372              		.section	.text.BSP_Motor_Stop,"ax",%progbits
+ 373              		.align	1
+ 374              		.global	BSP_Motor_Stop
+ 375              		.syntax unified
+ 376              		.thumb
+ 377              		.thumb_func
+ 379              	BSP_Motor_Stop:
+ 380              	.LFB35:
+ 138:bsp/bsp_motor_pwm.c **** 
+ 139:bsp/bsp_motor_pwm.c **** void BSP_Motor_Stop(void)
+ 140:bsp/bsp_motor_pwm.c **** {
+ 381              		.loc 1 140 1 is_stmt 1 view -0
+ 382              		.cfi_startproc
+ 383              		@ args = 0, pretend = 0, frame = 0
+ 384              		@ frame_needed = 0, uses_anonymous_args = 0
+ 385 0000 10B5     		push	{r4, lr}
+ 386              		.cfi_def_cfa_offset 8
+ 387              		.cfi_offset 4, -8
+ 388              		.cfi_offset 14, -4
+ 141:bsp/bsp_motor_pwm.c ****     /* 四脚同低 = 滑行；STBY 保持高，随时可以再起步 */
+ 142:bsp/bsp_motor_pwm.c ****     GPIO_WriteBit(BOARD_TB6612_AIN1_GPIO, BOARD_TB6612_AIN1_PIN, Bit_RESET);
+ 389              		.loc 1 142 5 view .LVU90
+ 390 0002 0022     		movs	r2, #0
+ 391 0004 2021     		movs	r1, #32
+ 392 0006 0F48     		ldr	r0, .L31
+ 393 0008 FFF7FEFF 		bl	GPIO_WriteBit
+ 394              	.LVL42:
+ 143:bsp/bsp_motor_pwm.c ****     GPIO_WriteBit(BOARD_TB6612_AIN2_GPIO, BOARD_TB6612_AIN2_PIN, Bit_RESET);
+ 395              		.loc 1 143 5 view .LVU91
+ 396 000c 0E4C     		ldr	r4, .L31+4
+ 397 000e 0022     		movs	r2, #0
+ 398 0010 0121     		movs	r1, #1
+ 399 0012 2046     		mov	r0, r4
+ 400 0014 FFF7FEFF 		bl	GPIO_WriteBit
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s 			page 11
+
+
+ 401              	.LVL43:
+ 144:bsp/bsp_motor_pwm.c ****     GPIO_WriteBit(BOARD_TB6612_BIN1_GPIO, BOARD_TB6612_BIN1_PIN, Bit_RESET);
+ 402              		.loc 1 144 5 view .LVU92
+ 403 0018 0022     		movs	r2, #0
+ 404 001a 0221     		movs	r1, #2
+ 405 001c 2046     		mov	r0, r4
+ 406 001e FFF7FEFF 		bl	GPIO_WriteBit
+ 407              	.LVL44:
+ 145:bsp/bsp_motor_pwm.c ****     GPIO_WriteBit(BOARD_TB6612_BIN2_GPIO, BOARD_TB6612_BIN2_PIN, Bit_RESET);
+ 408              		.loc 1 145 5 view .LVU93
+ 409 0022 0022     		movs	r2, #0
+ 410 0024 4FF48041 		mov	r1, #16384
+ 411 0028 2046     		mov	r0, r4
+ 412 002a FFF7FEFF 		bl	GPIO_WriteBit
+ 413              	.LVL45:
+ 146:bsp/bsp_motor_pwm.c **** 
+ 147:bsp/bsp_motor_pwm.c ****     TIM_SetCompare1(BOARD_MOTOR_TIM, 0U);
+ 414              		.loc 1 147 5 view .LVU94
+ 415 002e A4F58434 		sub	r4, r4, #67584
+ 416 0032 0021     		movs	r1, #0
+ 417 0034 2046     		mov	r0, r4
+ 418 0036 FFF7FEFF 		bl	TIM_SetCompare1
+ 419              	.LVL46:
+ 148:bsp/bsp_motor_pwm.c ****     TIM_SetCompare2(BOARD_MOTOR_TIM, 0U);
+ 420              		.loc 1 148 5 view .LVU95
+ 421 003a 0021     		movs	r1, #0
+ 422 003c 2046     		mov	r0, r4
+ 423 003e FFF7FEFF 		bl	TIM_SetCompare2
+ 424              	.LVL47:
+ 149:bsp/bsp_motor_pwm.c **** }
+ 425              		.loc 1 149 1 is_stmt 0 view .LVU96
+ 426 0042 10BD     		pop	{r4, pc}
+ 427              	.L32:
+ 428              		.align	2
+ 429              	.L31:
+ 430 0044 00080140 		.word	1073809408
+ 431 0048 000C0140 		.word	1073810432
+ 432              		.cfi_endproc
+ 433              	.LFE35:
+ 435              		.section	.text.BSP_Motor_Init,"ax",%progbits
+ 436              		.align	1
+ 437              		.global	BSP_Motor_Init
+ 438              		.syntax unified
+ 439              		.thumb
+ 440              		.thumb_func
+ 442              	BSP_Motor_Init:
+ 443              	.LFB32:
+  41:bsp/bsp_motor_pwm.c ****     TIM_TimeBaseInitTypeDef time_base;
+ 444              		.loc 1 41 1 is_stmt 1 view -0
+ 445              		.cfi_startproc
+ 446              		@ args = 0, pretend = 0, frame = 32
+ 447              		@ frame_needed = 0, uses_anonymous_args = 0
+ 448 0000 F0B5     		push	{r4, r5, r6, r7, lr}
+ 449              		.cfi_def_cfa_offset 20
+ 450              		.cfi_offset 4, -20
+ 451              		.cfi_offset 5, -16
+ 452              		.cfi_offset 6, -12
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s 			page 12
+
+
+ 453              		.cfi_offset 7, -8
+ 454              		.cfi_offset 14, -4
+ 455 0002 89B0     		sub	sp, sp, #36
+ 456              		.cfi_def_cfa_offset 56
+  42:bsp/bsp_motor_pwm.c ****     TIM_OCInitTypeDef oc_init;
+ 457              		.loc 1 42 5 view .LVU98
+  43:bsp/bsp_motor_pwm.c **** 
+ 458              		.loc 1 43 5 view .LVU99
+  45:bsp/bsp_motor_pwm.c ****     RCC_APB2PeriphClockCmd(BOARD_TB6612_GPIOA_CLK | BOARD_TB6612_GPIOB_CLK, ENABLE);
+ 459              		.loc 1 45 5 view .LVU100
+ 460 0004 0121     		movs	r1, #1
+ 461 0006 0220     		movs	r0, #2
+ 462 0008 FFF7FEFF 		bl	RCC_APB1PeriphClockCmd
+ 463              	.LVL48:
+  46:bsp/bsp_motor_pwm.c **** 
+ 464              		.loc 1 46 5 view .LVU101
+ 465 000c 0121     		movs	r1, #1
+ 466 000e 0C20     		movs	r0, #12
+ 467 0010 FFF7FEFF 		bl	RCC_APB2PeriphClockCmd
+ 468              	.LVL49:
+  49:bsp/bsp_motor_pwm.c ****     BSP_Motor_PwmPinInit(BOARD_TB6612_PWMB_GPIO, BOARD_TB6612_PWMB_PIN);
+ 469              		.loc 1 49 5 view .LVU102
+ 470 0014 334C     		ldr	r4, .L35
+ 471 0016 4021     		movs	r1, #64
+ 472 0018 2046     		mov	r0, r4
+ 473 001a FFF7FEFF 		bl	BSP_Motor_PwmPinInit
+ 474              	.LVL50:
+  50:bsp/bsp_motor_pwm.c **** 
+ 475              		.loc 1 50 5 view .LVU103
+ 476 001e 8021     		movs	r1, #128
+ 477 0020 2046     		mov	r0, r4
+ 478 0022 FFF7FEFF 		bl	BSP_Motor_PwmPinInit
+ 479              	.LVL51:
+  53:bsp/bsp_motor_pwm.c ****     BSP_Motor_OutPinInit(BOARD_TB6612_AIN2_GPIO, BOARD_TB6612_AIN2_PIN);
+ 480              		.loc 1 53 5 view .LVU104
+ 481 0026 2021     		movs	r1, #32
+ 482 0028 2046     		mov	r0, r4
+ 483 002a FFF7FEFF 		bl	BSP_Motor_OutPinInit
+ 484              	.LVL52:
+  54:bsp/bsp_motor_pwm.c ****     BSP_Motor_OutPinInit(BOARD_TB6612_BIN1_GPIO, BOARD_TB6612_BIN1_PIN);
+ 485              		.loc 1 54 5 view .LVU105
+ 486 002e 04F58064 		add	r4, r4, #1024
+ 487 0032 0121     		movs	r1, #1
+ 488 0034 2046     		mov	r0, r4
+ 489 0036 FFF7FEFF 		bl	BSP_Motor_OutPinInit
+ 490              	.LVL53:
+  55:bsp/bsp_motor_pwm.c ****     BSP_Motor_OutPinInit(BOARD_TB6612_BIN2_GPIO, BOARD_TB6612_BIN2_PIN);
+ 491              		.loc 1 55 5 view .LVU106
+ 492 003a 0221     		movs	r1, #2
+ 493 003c 2046     		mov	r0, r4
+ 494 003e FFF7FEFF 		bl	BSP_Motor_OutPinInit
+ 495              	.LVL54:
+  56:bsp/bsp_motor_pwm.c ****     BSP_Motor_OutPinInit(BOARD_TB6612_STBY_GPIO, BOARD_TB6612_STBY_PIN);
+ 496              		.loc 1 56 5 view .LVU107
+ 497 0042 4FF48041 		mov	r1, #16384
+ 498 0046 2046     		mov	r0, r4
+ 499 0048 FFF7FEFF 		bl	BSP_Motor_OutPinInit
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s 			page 13
+
+
+ 500              	.LVL55:
+  57:bsp/bsp_motor_pwm.c **** 
+ 501              		.loc 1 57 5 view .LVU108
+ 502 004c 2021     		movs	r1, #32
+ 503 004e 2046     		mov	r0, r4
+ 504 0050 FFF7FEFF 		bl	BSP_Motor_OutPinInit
+ 505              	.LVL56:
+  60:bsp/bsp_motor_pwm.c **** 
+ 506              		.loc 1 60 5 view .LVU109
+ 507 0054 0122     		movs	r2, #1
+ 508 0056 2021     		movs	r1, #32
+ 509 0058 2046     		mov	r0, r4
+ 510 005a FFF7FEFF 		bl	GPIO_WriteBit
+ 511              	.LVL57:
+  62:bsp/bsp_motor_pwm.c **** 
+ 512              		.loc 1 62 5 view .LVU110
+ 513 005e A4F58434 		sub	r4, r4, #67584
+ 514 0062 2046     		mov	r0, r4
+ 515 0064 FFF7FEFF 		bl	TIM_InternalClockConfig
+ 516              	.LVL58:
+  64:bsp/bsp_motor_pwm.c ****     time_base.TIM_CounterMode = TIM_CounterMode_Up;
+ 517              		.loc 1 64 5 view .LVU111
+  64:bsp/bsp_motor_pwm.c ****     time_base.TIM_CounterMode = TIM_CounterMode_Up;
+ 518              		.loc 1 64 33 is_stmt 0 view .LVU112
+ 519 0068 0025     		movs	r5, #0
+ 520 006a ADF81A50 		strh	r5, [sp, #26]	@ movhi
+  65:bsp/bsp_motor_pwm.c ****     time_base.TIM_Prescaler = BOARD_MOTOR_TIM_PRESCALER;
+ 521              		.loc 1 65 5 is_stmt 1 view .LVU113
+  65:bsp/bsp_motor_pwm.c ****     time_base.TIM_Prescaler = BOARD_MOTOR_TIM_PRESCALER;
+ 522              		.loc 1 65 31 is_stmt 0 view .LVU114
+ 523 006e ADF81650 		strh	r5, [sp, #22]	@ movhi
+  66:bsp/bsp_motor_pwm.c ****     time_base.TIM_Period = BOARD_MOTOR_TIM_PERIOD;
+ 524              		.loc 1 66 5 is_stmt 1 view .LVU115
+  66:bsp/bsp_motor_pwm.c ****     time_base.TIM_Period = BOARD_MOTOR_TIM_PERIOD;
+ 525              		.loc 1 66 29 is_stmt 0 view .LVU116
+ 526 0072 4723     		movs	r3, #71
+ 527 0074 ADF81430 		strh	r3, [sp, #20]	@ movhi
+  67:bsp/bsp_motor_pwm.c ****     time_base.TIM_RepetitionCounter = 0U;
+ 528              		.loc 1 67 5 is_stmt 1 view .LVU117
+  67:bsp/bsp_motor_pwm.c ****     time_base.TIM_RepetitionCounter = 0U;
+ 529              		.loc 1 67 26 is_stmt 0 view .LVU118
+ 530 0078 40F2E733 		movw	r3, #999
+ 531 007c ADF81830 		strh	r3, [sp, #24]	@ movhi
+  68:bsp/bsp_motor_pwm.c ****     TIM_TimeBaseInit(BOARD_MOTOR_TIM, &time_base);
+ 532              		.loc 1 68 5 is_stmt 1 view .LVU119
+  68:bsp/bsp_motor_pwm.c ****     TIM_TimeBaseInit(BOARD_MOTOR_TIM, &time_base);
+ 533              		.loc 1 68 37 is_stmt 0 view .LVU120
+ 534 0080 4FF00003 		mov	r3, #0	@ movhi
+ 535 0084 8DF81C30 		strb	r3, [sp, #28]
+  69:bsp/bsp_motor_pwm.c **** 
+ 536              		.loc 1 69 5 is_stmt 1 view .LVU121
+ 537 0088 05A9     		add	r1, sp, #20
+ 538 008a 2046     		mov	r0, r4
+ 539 008c FFF7FEFF 		bl	TIM_TimeBaseInit
+ 540              	.LVL59:
+  71:bsp/bsp_motor_pwm.c ****     oc_init.TIM_OCMode = TIM_OCMode_PWM1;
+ 541              		.loc 1 71 5 view .LVU122
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s 			page 14
+
+
+ 542 0090 01AF     		add	r7, sp, #4
+ 543 0092 3846     		mov	r0, r7
+ 544 0094 FFF7FEFF 		bl	TIM_OCStructInit
+ 545              	.LVL60:
+  72:bsp/bsp_motor_pwm.c ****     oc_init.TIM_OCPolarity = TIM_OCPolarity_High;
+ 546              		.loc 1 72 5 view .LVU123
+  72:bsp/bsp_motor_pwm.c ****     oc_init.TIM_OCPolarity = TIM_OCPolarity_High;
+ 547              		.loc 1 72 24 is_stmt 0 view .LVU124
+ 548 0098 6023     		movs	r3, #96
+ 549 009a ADF80430 		strh	r3, [sp, #4]	@ movhi
+  73:bsp/bsp_motor_pwm.c ****     oc_init.TIM_OutputState = TIM_OutputState_Enable;
+ 550              		.loc 1 73 5 is_stmt 1 view .LVU125
+  73:bsp/bsp_motor_pwm.c ****     oc_init.TIM_OutputState = TIM_OutputState_Enable;
+ 551              		.loc 1 73 28 is_stmt 0 view .LVU126
+ 552 009e ADF80C50 		strh	r5, [sp, #12]	@ movhi
+  74:bsp/bsp_motor_pwm.c ****     oc_init.TIM_Pulse = 0U;
+ 553              		.loc 1 74 5 is_stmt 1 view .LVU127
+  74:bsp/bsp_motor_pwm.c ****     oc_init.TIM_Pulse = 0U;
+ 554              		.loc 1 74 29 is_stmt 0 view .LVU128
+ 555 00a2 0126     		movs	r6, #1
+ 556 00a4 ADF80660 		strh	r6, [sp, #6]	@ movhi
+  75:bsp/bsp_motor_pwm.c **** 
+ 557              		.loc 1 75 5 is_stmt 1 view .LVU129
+  75:bsp/bsp_motor_pwm.c **** 
+ 558              		.loc 1 75 23 is_stmt 0 view .LVU130
+ 559 00a8 ADF80A50 		strh	r5, [sp, #10]	@ movhi
+  78:bsp/bsp_motor_pwm.c ****     TIM_OC2Init(BOARD_MOTOR_TIM, &oc_init);
+ 560              		.loc 1 78 5 is_stmt 1 view .LVU131
+ 561 00ac 3946     		mov	r1, r7
+ 562 00ae 2046     		mov	r0, r4
+ 563 00b0 FFF7FEFF 		bl	TIM_OC1Init
+ 564              	.LVL61:
+  79:bsp/bsp_motor_pwm.c **** 
+ 565              		.loc 1 79 5 view .LVU132
+ 566 00b4 3946     		mov	r1, r7
+ 567 00b6 2046     		mov	r0, r4
+ 568 00b8 FFF7FEFF 		bl	TIM_OC2Init
+ 569              	.LVL62:
+  81:bsp/bsp_motor_pwm.c ****     TIM_OC2PreloadConfig(BOARD_MOTOR_TIM, TIM_OCPreload_Enable);
+ 570              		.loc 1 81 5 view .LVU133
+ 571 00bc 0821     		movs	r1, #8
+ 572 00be 2046     		mov	r0, r4
+ 573 00c0 FFF7FEFF 		bl	TIM_OC1PreloadConfig
+ 574              	.LVL63:
+  82:bsp/bsp_motor_pwm.c ****     TIM_ARRPreloadConfig(BOARD_MOTOR_TIM, ENABLE);
+ 575              		.loc 1 82 5 view .LVU134
+ 576 00c4 0821     		movs	r1, #8
+ 577 00c6 2046     		mov	r0, r4
+ 578 00c8 FFF7FEFF 		bl	TIM_OC2PreloadConfig
+ 579              	.LVL64:
+  83:bsp/bsp_motor_pwm.c **** 
+ 580              		.loc 1 83 5 view .LVU135
+ 581 00cc 3146     		mov	r1, r6
+ 582 00ce 2046     		mov	r0, r4
+ 583 00d0 FFF7FEFF 		bl	TIM_ARRPreloadConfig
+ 584              	.LVL65:
+  85:bsp/bsp_motor_pwm.c **** 
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s 			page 15
+
+
+ 585              		.loc 1 85 5 view .LVU136
+ 586 00d4 3146     		mov	r1, r6
+ 587 00d6 2046     		mov	r0, r4
+ 588 00d8 FFF7FEFF 		bl	TIM_Cmd
+ 589              	.LVL66:
+  88:bsp/bsp_motor_pwm.c **** }
+ 590              		.loc 1 88 5 view .LVU137
+ 591 00dc FFF7FEFF 		bl	BSP_Motor_Stop
+ 592              	.LVL67:
+  89:bsp/bsp_motor_pwm.c **** 
+ 593              		.loc 1 89 1 is_stmt 0 view .LVU138
+ 594 00e0 09B0     		add	sp, sp, #36
+ 595              		.cfi_def_cfa_offset 20
+ 596              		@ sp needed
+ 597 00e2 F0BD     		pop	{r4, r5, r6, r7, pc}
+ 598              	.L36:
+ 599              		.align	2
+ 600              	.L35:
+ 601 00e4 00080140 		.word	1073809408
+ 602              		.cfi_endproc
+ 603              	.LFE32:
+ 605              		.text
+ 606              	.Letext0:
+ 607              		.file 2 "D:/Microsoft VS code/stm32tools/@xpack-dev-tools/arm-none-eabi-gcc/15.2.1-1.1.1/.content/
+ 608              		.file 3 "D:/Microsoft VS code/stm32tools/@xpack-dev-tools/arm-none-eabi-gcc/15.2.1-1.1.1/.content/
+ 609              		.file 4 "Drivers/CMSIS/stm32f10x.h"
+ 610              		.file 5 "Drivers/STM32F10x_StdPeriph_Driver/inc/stm32f10x_gpio.h"
+ 611              		.file 6 "Drivers/STM32F10x_StdPeriph_Driver/inc/stm32f10x_tim.h"
+ 612              		.file 7 "Drivers/STM32F10x_StdPeriph_Driver/inc/stm32f10x_rcc.h"
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s 			page 16
+
+
+DEFINED SYMBOLS
+                            *ABS*:00000000 bsp_motor_pwm.c
+C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s:19     .text.BSP_Motor_Clamp:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s:24     .text.BSP_Motor_Clamp:00000000 BSP_Motor_Clamp
+C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s:57     .text.BSP_Motor_Clamp:00000018 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s:62     .text.BSP_Motor_PwmPinInit:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s:67     .text.BSP_Motor_PwmPinInit:00000000 BSP_Motor_PwmPinInit
+C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s:107    .text.BSP_Motor_OutPinInit:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s:112    .text.BSP_Motor_OutPinInit:00000000 BSP_Motor_OutPinInit
+C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s:152    .text.BSP_Motor_SetLeft:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s:158    .text.BSP_Motor_SetLeft:00000000 BSP_Motor_SetLeft
+C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s:256    .text.BSP_Motor_SetLeft:00000060 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s:263    .text.BSP_Motor_SetRight:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s:269    .text.BSP_Motor_SetRight:00000000 BSP_Motor_SetRight
+C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s:367    .text.BSP_Motor_SetRight:00000068 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s:373    .text.BSP_Motor_Stop:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s:379    .text.BSP_Motor_Stop:00000000 BSP_Motor_Stop
+C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s:430    .text.BSP_Motor_Stop:00000044 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s:436    .text.BSP_Motor_Init:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s:442    .text.BSP_Motor_Init:00000000 BSP_Motor_Init
+C:\Users\XIANGR~1\AppData\Local\Temp\ccpolo8m.s:601    .text.BSP_Motor_Init:000000e4 $d
+
+UNDEFINED SYMBOLS
+GPIO_Init
+GPIO_WriteBit
+TIM_SetCompare1
+TIM_SetCompare2
+RCC_APB1PeriphClockCmd
+RCC_APB2PeriphClockCmd
+TIM_InternalClockConfig
+TIM_TimeBaseInit
+TIM_OCStructInit
+TIM_OC1Init
+TIM_OC2Init
+TIM_OC1PreloadConfig
+TIM_OC2PreloadConfig
+TIM_ARRPreloadConfig
+TIM_Cmd

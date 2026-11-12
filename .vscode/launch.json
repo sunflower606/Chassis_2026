@@ -1,0 +1,32 @@
+﻿{
+    "configurations": [
+        {
+            "showDevDebugOutput": "parsed",
+            "cwd": "${workspaceRoot}",
+            "executable": "./build-cmake/Chassis_2026.elf",
+            "name": "Debug STM32",
+            "request": "launch",
+            "type": "cortex-debug",
+            "servertype": "openocd",
+            "preLaunchTask": "CMake: build",
+            "device": "STM32F103C8",
+            "configFiles": [
+                "openocd.cfg"
+            ]
+        },
+        {
+            "showDevDebugOutput": "parsed",
+            "cwd": "${workspaceRoot}",
+            "executable": "./build-cmake/Chassis_2026.elf",
+            "name": "Attach STM32",
+            "request": "attach",
+            "type": "cortex-debug",
+            "servertype": "openocd",
+            "preLaunchTask": "CMake: build",
+            "device": "STM32F103C8",
+            "configFiles": [
+                "openocd.cfg"
+            ]
+        }
+    ]
+}

@@ -1,0 +1,285 @@
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccH7Yqhk.s 			page 1
+
+
+   1              		.cpu cortex-m3
+   2              		.arch armv7-m
+   3              		.fpu softvfp
+   4              		.eabi_attribute 20, 1
+   5              		.eabi_attribute 21, 1
+   6              		.eabi_attribute 23, 3
+   7              		.eabi_attribute 24, 1
+   8              		.eabi_attribute 25, 1
+   9              		.eabi_attribute 26, 1
+  10              		.eabi_attribute 30, 1
+  11              		.eabi_attribute 34, 1
+  12              		.eabi_attribute 18, 4
+  13              		.file	"bsp_line_gpio.c"
+  14              		.text
+  15              	.Ltext0:
+  16              		.cfi_sections	.debug_frame
+  17              		.file 1 "bsp/bsp_line_gpio.c"
+  18              		.section	.text.BSP_Line_Init,"ax",%progbits
+  19              		.align	1
+  20              		.global	BSP_Line_Init
+  21              		.syntax unified
+  22              		.thumb
+  23              		.thumb_func
+  25              	BSP_Line_Init:
+  26              	.LFB29:
+   1:bsp/bsp_line_gpio.c **** #include "bsp_line_gpio.h"
+   2:bsp/bsp_line_gpio.c **** 
+   3:bsp/bsp_line_gpio.c **** /* ---------------------------------------------------------------- 引脚表
+   4:bsp/bsp_line_gpio.c ****  * 数组下标就是位图里的位号：索引 0 -> bit0 -> CH1（最左）。
+   5:bsp/bsp_line_gpio.c ****  * 顺序改错会导致「明明线在左边，程序以为在右边」，改这里时务必对着
+   6:bsp/bsp_line_gpio.c ****  *
+   7:bsp/bsp_line_gpio.c ****  * 允许跨端口：现在 CH1~CH6 在 GPIOA，CH7 在 GPIOB。
+   8:bsp/bsp_line_gpio.c ****  * ---------------------------------------------------------------- */
+   9:bsp/bsp_line_gpio.c **** typedef struct {
+  10:bsp/bsp_line_gpio.c ****     GPIO_TypeDef *port;
+  11:bsp/bsp_line_gpio.c ****     uint16_t      pin;
+  12:bsp/bsp_line_gpio.c **** } LinePin_t;
+  13:bsp/bsp_line_gpio.c **** 
+  14:bsp/bsp_line_gpio.c **** static const LinePin_t s_line_pins[BSP_LINE_CHANNEL_COUNT] = {
+  15:bsp/bsp_line_gpio.c ****     { BOARD_LINE_GPIO,   BOARD_LINE_CH1_PIN },   /* bit0，最左 */
+  16:bsp/bsp_line_gpio.c ****     { BOARD_LINE_GPIO,   BOARD_LINE_CH2_PIN },   /* bit1 */
+  17:bsp/bsp_line_gpio.c ****     { BOARD_LINE_GPIO,   BOARD_LINE_CH3_PIN },   /* bit2 */
+  18:bsp/bsp_line_gpio.c ****     { BOARD_LINE_GPIO,   BOARD_LINE_CH4_PIN },   /* bit3，正中 */
+  19:bsp/bsp_line_gpio.c ****     { BOARD_LINE_GPIO,   BOARD_LINE_CH5_PIN },   /* bit4 */
+  20:bsp/bsp_line_gpio.c ****     { BOARD_LINE_GPIO,   BOARD_LINE_CH6_PIN },   /* bit5 */
+  21:bsp/bsp_line_gpio.c ****     { BOARD_LINE_B_GPIO, BOARD_LINE_B_CH7_PIN },  /* bit6，最右 */
+  22:bsp/bsp_line_gpio.c **** };
+  23:bsp/bsp_line_gpio.c **** 
+  24:bsp/bsp_line_gpio.c **** /* 位图用一个字节装，通道数超过 8 就装不下了 —— 超过时这里直接编译�
+  25:bsp/bsp_line_gpio.c **** typedef char line_pin_bit_width_ok[(BSP_LINE_CHANNEL_COUNT <= 8U) ? 1 : -1];
+  26:bsp/bsp_line_gpio.c **** 
+  27:bsp/bsp_line_gpio.c **** void BSP_Line_Init(void)
+  28:bsp/bsp_line_gpio.c **** {
+  27              		.loc 1 28 1 view -0
+  28              		.cfi_startproc
+  29              		@ args = 0, pretend = 0, frame = 8
+  30              		@ frame_needed = 0, uses_anonymous_args = 0
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccH7Yqhk.s 			page 2
+
+
+  31 0000 10B5     		push	{r4, lr}
+  32              		.cfi_def_cfa_offset 8
+  33              		.cfi_offset 4, -8
+  34              		.cfi_offset 14, -4
+  35 0002 82B0     		sub	sp, sp, #8
+  36              		.cfi_def_cfa_offset 16
+  29:bsp/bsp_line_gpio.c ****     GPIO_InitTypeDef gpio_init;
+  37              		.loc 1 29 5 view .LVU1
+  30:bsp/bsp_line_gpio.c **** 
+  31:bsp/bsp_line_gpio.c ****     /* 两个端口组的时钟一起开，OR 在一起不会有副作用 */
+  32:bsp/bsp_line_gpio.c ****     RCC_APB2PeriphClockCmd(BOARD_LINE_GPIO_CLK | BOARD_LINE_B_GPIO_CLK, ENABLE);
+  38              		.loc 1 32 5 view .LVU2
+  39 0004 0121     		movs	r1, #1
+  40 0006 0C20     		movs	r0, #12
+  41 0008 FFF7FEFF 		bl	RCC_APB2PeriphClockCmd
+  42              	.LVL0:
+  33:bsp/bsp_line_gpio.c **** 
+  34:bsp/bsp_line_gpio.c ****     /* 上拉输入：传感器未驱动时保持高电平，不会浮空误判 */
+  35:bsp/bsp_line_gpio.c ****     gpio_init.GPIO_Mode = GPIO_Mode_IPU;
+  43              		.loc 1 35 5 view .LVU3
+  44              		.loc 1 35 25 is_stmt 0 view .LVU4
+  45 000c 4823     		movs	r3, #72
+  46 000e 8DF80730 		strb	r3, [sp, #7]
+  36:bsp/bsp_line_gpio.c ****     gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
+  47              		.loc 1 36 5 is_stmt 1 view .LVU5
+  48              		.loc 1 36 26 is_stmt 0 view .LVU6
+  49 0012 0323     		movs	r3, #3
+  50 0014 8DF80630 		strb	r3, [sp, #6]
+  37:bsp/bsp_line_gpio.c **** 
+  38:bsp/bsp_line_gpio.c ****     /* CH1~CH6：GPIOA（CH6 = PA15，JTAG 脚，已在 bsp_encoder.c 里关掉 JTAG） */
+  39:bsp/bsp_line_gpio.c ****     gpio_init.GPIO_Pin = BOARD_LINE_CH1_PIN | BOARD_LINE_CH2_PIN |
+  51              		.loc 1 39 5 is_stmt 1 view .LVU7
+  52              		.loc 1 39 24 is_stmt 0 view .LVU8
+  53 0018 49F60C13 		movw	r3, #39180
+  54 001c ADF80430 		strh	r3, [sp, #4]	@ movhi
+  40:bsp/bsp_line_gpio.c ****                          BOARD_LINE_CH3_PIN | BOARD_LINE_CH4_PIN |
+  41:bsp/bsp_line_gpio.c ****                          BOARD_LINE_CH5_PIN | BOARD_LINE_CH6_PIN;
+  42:bsp/bsp_line_gpio.c ****     GPIO_Init(BOARD_LINE_GPIO, &gpio_init);
+  55              		.loc 1 42 5 is_stmt 1 view .LVU9
+  56 0020 01AC     		add	r4, sp, #4
+  57 0022 2146     		mov	r1, r4
+  58 0024 0548     		ldr	r0, .L3
+  59 0026 FFF7FEFF 		bl	GPIO_Init
+  60              	.LVL1:
+  43:bsp/bsp_line_gpio.c **** 
+  44:bsp/bsp_line_gpio.c ****     /* CH7：GPIOB（PB3，JTAG 脚，同样靠关 JTAG 释放） */
+  45:bsp/bsp_line_gpio.c ****     gpio_init.GPIO_Pin = BOARD_LINE_B_CH7_PIN;
+  61              		.loc 1 45 5 view .LVU10
+  62              		.loc 1 45 24 is_stmt 0 view .LVU11
+  63 002a 0823     		movs	r3, #8
+  64 002c ADF80430 		strh	r3, [sp, #4]	@ movhi
+  46:bsp/bsp_line_gpio.c ****     GPIO_Init(BOARD_LINE_B_GPIO, &gpio_init);
+  65              		.loc 1 46 5 is_stmt 1 view .LVU12
+  66 0030 2146     		mov	r1, r4
+  67 0032 0348     		ldr	r0, .L3+4
+  68 0034 FFF7FEFF 		bl	GPIO_Init
+  69              	.LVL2:
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccH7Yqhk.s 			page 3
+
+
+  47:bsp/bsp_line_gpio.c **** }
+  70              		.loc 1 47 1 is_stmt 0 view .LVU13
+  71 0038 02B0     		add	sp, sp, #8
+  72              		.cfi_def_cfa_offset 8
+  73              		@ sp needed
+  74 003a 10BD     		pop	{r4, pc}
+  75              	.L4:
+  76              		.align	2
+  77              	.L3:
+  78 003c 00080140 		.word	1073809408
+  79 0040 000C0140 		.word	1073810432
+  80              		.cfi_endproc
+  81              	.LFE29:
+  83              		.section	.text.BSP_Line_ReadRaw,"ax",%progbits
+  84              		.align	1
+  85              		.global	BSP_Line_ReadRaw
+  86              		.syntax unified
+  87              		.thumb
+  88              		.thumb_func
+  90              	BSP_Line_ReadRaw:
+  91              	.LFB30:
+  48:bsp/bsp_line_gpio.c **** 
+  49:bsp/bsp_line_gpio.c **** uint8_t BSP_Line_ReadRaw(void)
+  50:bsp/bsp_line_gpio.c **** {
+  92              		.loc 1 50 1 is_stmt 1 view -0
+  93              		.cfi_startproc
+  94              		@ args = 0, pretend = 0, frame = 0
+  95              		@ frame_needed = 0, uses_anonymous_args = 0
+  96 0000 38B5     		push	{r3, r4, r5, lr}
+  97              		.cfi_def_cfa_offset 16
+  98              		.cfi_offset 3, -16
+  99              		.cfi_offset 4, -12
+ 100              		.cfi_offset 5, -8
+ 101              		.cfi_offset 14, -4
+  51:bsp/bsp_line_gpio.c ****     uint8_t raw = 0U;
+ 102              		.loc 1 51 5 view .LVU15
+ 103              	.LVL3:
+  52:bsp/bsp_line_gpio.c ****     uint8_t i;
+ 104              		.loc 1 52 5 view .LVU16
+  53:bsp/bsp_line_gpio.c **** 
+  54:bsp/bsp_line_gpio.c ****     /* 逐个通道读，位号由表的下标决定，写错位的机会比手写 7 个 if 小 */
+  55:bsp/bsp_line_gpio.c ****     for (i = 0U; i < BSP_LINE_CHANNEL_COUNT; i++) {
+ 105              		.loc 1 55 5 view .LVU17
+ 106              		.loc 1 55 12 is_stmt 0 view .LVU18
+ 107 0002 0024     		movs	r4, #0
+  51:bsp/bsp_line_gpio.c ****     uint8_t i;
+ 108              		.loc 1 51 13 view .LVU19
+ 109 0004 2546     		mov	r5, r4
+ 110              		.loc 1 55 5 view .LVU20
+ 111 0006 01E0     		b	.L6
+ 112              	.LVL4:
+ 113              	.L7:
+ 114              		.loc 1 55 47 is_stmt 1 discriminator 2 view .LVU21
+ 115 0008 0134     		adds	r4, r4, #1
+ 116              	.LVL5:
+ 117              		.loc 1 55 47 is_stmt 0 discriminator 2 view .LVU22
+ 118 000a E4B2     		uxtb	r4, r4
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccH7Yqhk.s 			page 4
+
+
+ 119              	.LVL6:
+ 120              	.L6:
+ 121              		.loc 1 55 20 is_stmt 1 discriminator 1 view .LVU23
+ 122 000c 062C     		cmp	r4, #6
+ 123 000e 0ED8     		bhi	.L10
+  56:bsp/bsp_line_gpio.c ****         if (GPIO_ReadInputDataBit(s_line_pins[i].port, s_line_pins[i].pin) != Bit_RESET) {
+ 124              		.loc 1 56 9 view .LVU24
+ 125              		.loc 1 56 49 is_stmt 0 view .LVU25
+ 126 0010 084B     		ldr	r3, .L11
+ 127              		.loc 1 56 70 view .LVU26
+ 128 0012 03EBC402 		add	r2, r3, r4, lsl #3
+ 129              		.loc 1 56 13 view .LVU27
+ 130 0016 9188     		ldrh	r1, [r2, #4]
+ 131 0018 53F83400 		ldr	r0, [r3, r4, lsl #3]
+ 132 001c FFF7FEFF 		bl	GPIO_ReadInputDataBit
+ 133              	.LVL7:
+ 134              		.loc 1 56 12 discriminator 1 view .LVU28
+ 135 0020 0028     		cmp	r0, #0
+ 136 0022 F1D0     		beq	.L7
+  57:bsp/bsp_line_gpio.c ****             raw |= (uint8_t)(1U << i);
+ 137              		.loc 1 57 13 is_stmt 1 view .LVU29
+ 138              		.loc 1 57 33 is_stmt 0 view .LVU30
+ 139 0024 0123     		movs	r3, #1
+ 140 0026 A340     		lsls	r3, r3, r4
+ 141              		.loc 1 57 20 view .LVU31
+ 142 0028 DBB2     		uxtb	r3, r3
+ 143              		.loc 1 57 17 view .LVU32
+ 144 002a 1D43     		orrs	r5, r5, r3
+ 145              	.LVL8:
+ 146              		.loc 1 57 17 view .LVU33
+ 147 002c ECE7     		b	.L7
+ 148              	.LVL9:
+ 149              	.L10:
+  58:bsp/bsp_line_gpio.c ****         }
+  59:bsp/bsp_line_gpio.c ****     }
+  60:bsp/bsp_line_gpio.c **** 
+  61:bsp/bsp_line_gpio.c ****     return raw;
+ 150              		.loc 1 61 5 is_stmt 1 view .LVU34
+  62:bsp/bsp_line_gpio.c **** }
+ 151              		.loc 1 62 1 is_stmt 0 view .LVU35
+ 152 002e 2846     		mov	r0, r5
+ 153 0030 38BD     		pop	{r3, r4, r5, pc}
+ 154              	.LVL10:
+ 155              	.L12:
+ 156              		.loc 1 62 1 view .LVU36
+ 157 0032 00BF     		.align	2
+ 158              	.L11:
+ 159 0034 00000000 		.word	s_line_pins
+ 160              		.cfi_endproc
+ 161              	.LFE30:
+ 163              		.section	.rodata.s_line_pins,"a"
+ 164              		.align	2
+ 167              	s_line_pins:
+ 168 0000 00080140 		.word	1073809408
+ 169 0004 0400     		.short	4
+ 170 0006 0000     		.space	2
+ 171 0008 00080140 		.word	1073809408
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccH7Yqhk.s 			page 5
+
+
+ 172 000c 0800     		.short	8
+ 173 000e 0000     		.space	2
+ 174 0010 00080140 		.word	1073809408
+ 175 0014 0001     		.short	256
+ 176 0016 0000     		.space	2
+ 177 0018 00080140 		.word	1073809408
+ 178 001c 0008     		.short	2048
+ 179 001e 0000     		.space	2
+ 180 0020 00080140 		.word	1073809408
+ 181 0024 0010     		.short	4096
+ 182 0026 0000     		.space	2
+ 183 0028 00080140 		.word	1073809408
+ 184 002c 0080     		.short	-32768
+ 185 002e 0000     		.space	2
+ 186 0030 000C0140 		.word	1073810432
+ 187 0034 0800     		.short	8
+ 188 0036 0000     		.space	2
+ 189              		.text
+ 190              	.Letext0:
+ 191              		.file 2 "D:/Microsoft VS code/stm32tools/@xpack-dev-tools/arm-none-eabi-gcc/15.2.1-1.1.1/.content/
+ 192              		.file 3 "D:/Microsoft VS code/stm32tools/@xpack-dev-tools/arm-none-eabi-gcc/15.2.1-1.1.1/.content/
+ 193              		.file 4 "Drivers/CMSIS/stm32f10x.h"
+ 194              		.file 5 "Drivers/STM32F10x_StdPeriph_Driver/inc/stm32f10x_gpio.h"
+ 195              		.file 6 "Drivers/STM32F10x_StdPeriph_Driver/inc/stm32f10x_rcc.h"
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccH7Yqhk.s 			page 6
+
+
+DEFINED SYMBOLS
+                            *ABS*:00000000 bsp_line_gpio.c
+C:\Users\XIANGR~1\AppData\Local\Temp\ccH7Yqhk.s:19     .text.BSP_Line_Init:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccH7Yqhk.s:25     .text.BSP_Line_Init:00000000 BSP_Line_Init
+C:\Users\XIANGR~1\AppData\Local\Temp\ccH7Yqhk.s:78     .text.BSP_Line_Init:0000003c $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccH7Yqhk.s:84     .text.BSP_Line_ReadRaw:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccH7Yqhk.s:90     .text.BSP_Line_ReadRaw:00000000 BSP_Line_ReadRaw
+C:\Users\XIANGR~1\AppData\Local\Temp\ccH7Yqhk.s:159    .text.BSP_Line_ReadRaw:00000034 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccH7Yqhk.s:167    .rodata.s_line_pins:00000000 s_line_pins
+C:\Users\XIANGR~1\AppData\Local\Temp\ccH7Yqhk.s:164    .rodata.s_line_pins:00000000 $d
+
+UNDEFINED SYMBOLS
+RCC_APB2PeriphClockCmd
+GPIO_Init
+GPIO_ReadInputDataBit

@@ -1,0 +1,18 @@
+{
+    "files.encoding": "utf8",
+    "files.associations": {
+        "*.h": "c",
+        "*.c": "c"
+    },
+    "C_Cpp.default.cStandard": "c11",
+    "C_Cpp.default.intelliSenseMode": "gcc-arm",
+    "C_Cpp.default.compilerPath": "D:/Microsoft VS code/stm32tools/@xpack-dev-tools/arm-none-eabi-gcc/15.2.1-1.1.1/.content/bin/arm-none-eabi-gcc.exe",
+    "cmake.cmakePath": "D:/EdgeAI/yolo_env/Scripts/cmake.exe",
+    "cmake.generator": "Ninja",
+    "cmake.buildDirectory": "${workspaceFolder}/build-cmake",
+    "cmake.configureOnOpen": false,
+    "editor.formatOnSave": false,
+    "files.trimTrailingWhitespace": true,
+    "cortex-debug.openocdPath": "D:\\Microsoft VS code\\stm32tools\\@xpack-dev-tools\\openocd\\0.12.0-7.1\\.content\\bin\\openocd.EXE",
+    "idf.currentSetup": "D:\\ESP32-IDF\\download\\Espressif\\frameworks\\esp-idf-v5.4"
+}

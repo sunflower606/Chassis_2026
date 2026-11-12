@@ -1,0 +1,539 @@
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\cclODOoi.s 			page 1
+
+
+   1              		.cpu cortex-m3
+   2              		.arch armv7-m
+   3              		.fpu softvfp
+   4              		.eabi_attribute 20, 1
+   5              		.eabi_attribute 21, 1
+   6              		.eabi_attribute 23, 3
+   7              		.eabi_attribute 24, 1
+   8              		.eabi_attribute 25, 1
+   9              		.eabi_attribute 26, 1
+  10              		.eabi_attribute 30, 1
+  11              		.eabi_attribute 34, 1
+  12              		.eabi_attribute 18, 4
+  13              		.file	"bsp_encoder.c"
+  14              		.text
+  15              	.Ltext0:
+  16              		.cfi_sections	.debug_frame
+  17              		.file 1 "bsp/bsp_encoder.c"
+  18              		.section	.text.BSP_Encoder_ConfigTimer,"ax",%progbits
+  19              		.align	1
+  20              		.syntax unified
+  21              		.thumb
+  22              		.thumb_func
+  24              	BSP_Encoder_ConfigTimer:
+  25              	.LVL0:
+  26              	.LFB29:
+   1:bsp/bsp_encoder.c **** #include "bsp_encoder.h"
+   2:bsp/bsp_encoder.c **** 
+   3:bsp/bsp_encoder.c **** #include "board_config.h"
+   4:bsp/bsp_encoder.c **** 
+   5:bsp/bsp_encoder.c **** /* 上一次读到的计数器值，用于算增量 */
+   6:bsp/bsp_encoder.c **** static int16_t s_last_left = 0;
+   7:bsp/bsp_encoder.c **** static int16_t s_last_right = 0;
+   8:bsp/bsp_encoder.c **** 
+   9:bsp/bsp_encoder.c **** /* 配置一个定时器为编码器模式。
+  10:bsp/bsp_encoder.c ****  * 编码器模式下不需要手动配置输入捕获，TIM_EncoderInterfaceConfig 会
+  11:bsp/bsp_encoder.c ****  * 把两个通道都设成输入并自动处理方向（正转加、反转减）。 */
+  12:bsp/bsp_encoder.c **** static void BSP_Encoder_ConfigTimer(TIM_TypeDef *tim, uint16_t prescaler)
+  13:bsp/bsp_encoder.c **** {
+  27              		.loc 1 13 1 view -0
+  28              		.cfi_startproc
+  29              		@ args = 0, pretend = 0, frame = 16
+  30              		@ frame_needed = 0, uses_anonymous_args = 0
+  31              		.loc 1 13 1 is_stmt 0 view .LVU1
+  32 0000 30B5     		push	{r4, r5, lr}
+  33              		.cfi_def_cfa_offset 12
+  34              		.cfi_offset 4, -12
+  35              		.cfi_offset 5, -8
+  36              		.cfi_offset 14, -4
+  37 0002 85B0     		sub	sp, sp, #20
+  38              		.cfi_def_cfa_offset 32
+  39 0004 0446     		mov	r4, r0
+  14:bsp/bsp_encoder.c ****     TIM_TimeBaseInitTypeDef time_base;
+  40              		.loc 1 14 5 is_stmt 1 view .LVU2
+  15:bsp/bsp_encoder.c **** 
+  16:bsp/bsp_encoder.c ****     time_base.TIM_ClockDivision = TIM_CKD_DIV1;
+  41              		.loc 1 16 5 view .LVU3
+  42              		.loc 1 16 33 is_stmt 0 view .LVU4
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\cclODOoi.s 			page 2
+
+
+  43 0006 0025     		movs	r5, #0
+  44 0008 ADF80A50 		strh	r5, [sp, #10]	@ movhi
+  17:bsp/bsp_encoder.c ****     time_base.TIM_CounterMode = TIM_CounterMode_Up;
+  45              		.loc 1 17 5 is_stmt 1 view .LVU5
+  46              		.loc 1 17 31 is_stmt 0 view .LVU6
+  47 000c ADF80650 		strh	r5, [sp, #6]	@ movhi
+  18:bsp/bsp_encoder.c ****     time_base.TIM_Prescaler = prescaler;
+  48              		.loc 1 18 5 is_stmt 1 view .LVU7
+  49              		.loc 1 18 29 is_stmt 0 view .LVU8
+  50 0010 ADF80410 		strh	r1, [sp, #4]	@ movhi
+  19:bsp/bsp_encoder.c ****     time_base.TIM_Period = 0xFFFFU;     /* 16 位满量程，减少回绕次数 */
+  51              		.loc 1 19 5 is_stmt 1 view .LVU9
+  52              		.loc 1 19 26 is_stmt 0 view .LVU10
+  53 0014 4FF6FF73 		movw	r3, #65535
+  54 0018 ADF80830 		strh	r3, [sp, #8]	@ movhi
+  20:bsp/bsp_encoder.c ****     time_base.TIM_RepetitionCounter = 0U;
+  55              		.loc 1 20 5 is_stmt 1 view .LVU11
+  56              		.loc 1 20 37 is_stmt 0 view .LVU12
+  57 001c 4FF00003 		mov	r3, #0	@ movhi
+  58 0020 8DF80C30 		strb	r3, [sp, #12]
+  21:bsp/bsp_encoder.c ****     TIM_TimeBaseInit(tim, &time_base);
+  59              		.loc 1 21 5 is_stmt 1 view .LVU13
+  60 0024 01A9     		add	r1, sp, #4
+  61              	.LVL1:
+  62              		.loc 1 21 5 is_stmt 0 view .LVU14
+  63 0026 FFF7FEFF 		bl	TIM_TimeBaseInit
+  64              	.LVL2:
+  22:bsp/bsp_encoder.c **** 
+  23:bsp/bsp_encoder.c ****     /* TI12：A/B 两相都参与计数（4 倍频）；上下沿都计，得到最高分辨率 */
+  24:bsp/bsp_encoder.c ****     TIM_EncoderInterfaceConfig(tim, TIM_EncoderMode_TI12,
+  65              		.loc 1 24 5 is_stmt 1 view .LVU15
+  66 002a 2B46     		mov	r3, r5
+  67 002c 2A46     		mov	r2, r5
+  68 002e 0321     		movs	r1, #3
+  69 0030 2046     		mov	r0, r4
+  70 0032 FFF7FEFF 		bl	TIM_EncoderInterfaceConfig
+  71              	.LVL3:
+  25:bsp/bsp_encoder.c ****                                TIM_ICPolarity_Rising, TIM_ICPolarity_Rising);
+  26:bsp/bsp_encoder.c **** 
+  27:bsp/bsp_encoder.c ****     TIM_SetCounter(tim, 0U);
+  72              		.loc 1 27 5 view .LVU16
+  73 0036 2946     		mov	r1, r5
+  74 0038 2046     		mov	r0, r4
+  75 003a FFF7FEFF 		bl	TIM_SetCounter
+  76              	.LVL4:
+  28:bsp/bsp_encoder.c ****     TIM_Cmd(tim, ENABLE);
+  77              		.loc 1 28 5 view .LVU17
+  78 003e 0121     		movs	r1, #1
+  79 0040 2046     		mov	r0, r4
+  80 0042 FFF7FEFF 		bl	TIM_Cmd
+  81              	.LVL5:
+  29:bsp/bsp_encoder.c **** }
+  82              		.loc 1 29 1 is_stmt 0 view .LVU18
+  83 0046 05B0     		add	sp, sp, #20
+  84              		.cfi_def_cfa_offset 12
+  85              		@ sp needed
+  86 0048 30BD     		pop	{r4, r5, pc}
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\cclODOoi.s 			page 3
+
+
+  87              		.loc 1 29 1 view .LVU19
+  88              		.cfi_endproc
+  89              	.LFE29:
+  91              		.section	.text.BSP_Encoder_Init,"ax",%progbits
+  92              		.align	1
+  93              		.global	BSP_Encoder_Init
+  94              		.syntax unified
+  95              		.thumb
+  96              		.thumb_func
+  98              	BSP_Encoder_Init:
+  99              	.LFB30:
+  30:bsp/bsp_encoder.c **** 
+  31:bsp/bsp_encoder.c **** void BSP_Encoder_Init(void)
+  32:bsp/bsp_encoder.c **** {
+ 100              		.loc 1 32 1 is_stmt 1 view -0
+ 101              		.cfi_startproc
+ 102              		@ args = 0, pretend = 0, frame = 8
+ 103              		@ frame_needed = 0, uses_anonymous_args = 0
+ 104 0000 30B5     		push	{r4, r5, lr}
+ 105              		.cfi_def_cfa_offset 12
+ 106              		.cfi_offset 4, -12
+ 107              		.cfi_offset 5, -8
+ 108              		.cfi_offset 14, -4
+ 109 0002 83B0     		sub	sp, sp, #12
+ 110              		.cfi_def_cfa_offset 24
+  33:bsp/bsp_encoder.c ****     GPIO_InitTypeDef gpio_init;
+ 111              		.loc 1 33 5 view .LVU21
+  34:bsp/bsp_encoder.c **** 
+  35:bsp/bsp_encoder.c ****     /* AFIO 必须先开：关闭 JTAG 靠它 */
+  36:bsp/bsp_encoder.c ****     RCC_APB2PeriphClockCmd(RCC_APB2Periph_AFIO, ENABLE);
+ 112              		.loc 1 36 5 view .LVU22
+ 113 0004 0121     		movs	r1, #1
+ 114 0006 0846     		mov	r0, r1
+ 115 0008 FFF7FEFF 		bl	RCC_APB2PeriphClockCmd
+ 116              	.LVL6:
+  37:bsp/bsp_encoder.c **** 
+  38:bsp/bsp_encoder.c ****     /* 关闭 JTAG、保留 SWD：释放 PA15 / PB3 / PB4 当普通 IO。
+  39:bsp/bsp_encoder.c ****      * 不关的话 PA15/PB3 被 JTAG 占用，循迹 CH6/CH7 与按键 STOP 读不到电平
+  40:bsp/bsp_encoder.c ****      * —— 而且不报错。 */
+  41:bsp/bsp_encoder.c ****     GPIO_PinRemapConfig(GPIO_Remap_SWJ_JTAGDisable, ENABLE);
+ 117              		.loc 1 41 5 view .LVU23
+ 118 000c 0121     		movs	r1, #1
+ 119 000e 2248     		ldr	r0, .L5
+ 120 0010 FFF7FEFF 		bl	GPIO_PinRemapConfig
+ 121              	.LVL7:
+  42:bsp/bsp_encoder.c **** 
+  43:bsp/bsp_encoder.c ****     /* 注意：**不要**做 GPIO_PartialRemap1_TIM2。
+  44:bsp/bsp_encoder.c ****      * 左轮编码器接在 PA0/PA1，正是 TIM2_CH1/CH2 的默认映射；
+  45:bsp/bsp_encoder.c ****      * 一旦启用部分重映射，通道会被挪到 PA15/PB3，PA0/PA1 上的编码器就读不
+  46:bsp/bsp_encoder.c **** 
+  47:bsp/bsp_encoder.c ****     RCC_APB1PeriphClockCmd(BOARD_ENC_LEFT_TIM_CLK, ENABLE);
+ 122              		.loc 1 47 5 view .LVU24
+ 123 0014 0121     		movs	r1, #1
+ 124 0016 0846     		mov	r0, r1
+ 125 0018 FFF7FEFF 		bl	RCC_APB1PeriphClockCmd
+ 126              	.LVL8:
+  48:bsp/bsp_encoder.c ****     RCC_APB1PeriphClockCmd(BOARD_ENC_RIGHT_TIM_CLK, ENABLE);
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\cclODOoi.s 			page 4
+
+
+ 127              		.loc 1 48 5 view .LVU25
+ 128 001c 0121     		movs	r1, #1
+ 129 001e 0420     		movs	r0, #4
+ 130 0020 FFF7FEFF 		bl	RCC_APB1PeriphClockCmd
+ 131              	.LVL9:
+  49:bsp/bsp_encoder.c ****     RCC_APB2PeriphClockCmd(BOARD_ENC_LEFT_A_GPIO_CLK, ENABLE);
+ 132              		.loc 1 49 5 view .LVU26
+ 133 0024 0121     		movs	r1, #1
+ 134 0026 0420     		movs	r0, #4
+ 135 0028 FFF7FEFF 		bl	RCC_APB2PeriphClockCmd
+ 136              	.LVL10:
+  50:bsp/bsp_encoder.c ****     RCC_APB2PeriphClockCmd(BOARD_ENC_LEFT_B_GPIO_CLK, ENABLE);
+ 137              		.loc 1 50 5 view .LVU27
+ 138 002c 0121     		movs	r1, #1
+ 139 002e 0420     		movs	r0, #4
+ 140 0030 FFF7FEFF 		bl	RCC_APB2PeriphClockCmd
+ 141              	.LVL11:
+  51:bsp/bsp_encoder.c ****     RCC_APB2PeriphClockCmd(BOARD_ENC_RIGHT_GPIO_CLK, ENABLE);
+ 142              		.loc 1 51 5 view .LVU28
+ 143 0034 0121     		movs	r1, #1
+ 144 0036 0820     		movs	r0, #8
+ 145 0038 FFF7FEFF 		bl	RCC_APB2PeriphClockCmd
+ 146              	.LVL12:
+  52:bsp/bsp_encoder.c **** 
+  53:bsp/bsp_encoder.c ****     /* 编码器输出是推挽/开集电平信号，MCU 侧浮空输入即可 */
+  54:bsp/bsp_encoder.c ****     gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
+ 147              		.loc 1 54 5 view .LVU29
+ 148              		.loc 1 54 26 is_stmt 0 view .LVU30
+ 149 003c 0323     		movs	r3, #3
+ 150 003e 8DF80630 		strb	r3, [sp, #6]
+  55:bsp/bsp_encoder.c ****     gpio_init.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+ 151              		.loc 1 55 5 is_stmt 1 view .LVU31
+ 152              		.loc 1 55 25 is_stmt 0 view .LVU32
+ 153 0042 0423     		movs	r3, #4
+ 154 0044 8DF80730 		strb	r3, [sp, #7]
+  56:bsp/bsp_encoder.c **** 
+  57:bsp/bsp_encoder.c ****     gpio_init.GPIO_Pin = BOARD_ENC_LEFT_A_PIN;
+ 155              		.loc 1 57 5 is_stmt 1 view .LVU33
+ 156              		.loc 1 57 24 is_stmt 0 view .LVU34
+ 157 0048 0123     		movs	r3, #1
+ 158 004a ADF80430 		strh	r3, [sp, #4]	@ movhi
+  58:bsp/bsp_encoder.c ****     GPIO_Init(BOARD_ENC_LEFT_A_GPIO, &gpio_init);
+ 159              		.loc 1 58 5 is_stmt 1 view .LVU35
+ 160 004e 01AC     		add	r4, sp, #4
+ 161 0050 124D     		ldr	r5, .L5+4
+ 162 0052 2146     		mov	r1, r4
+ 163 0054 2846     		mov	r0, r5
+ 164 0056 FFF7FEFF 		bl	GPIO_Init
+ 165              	.LVL13:
+  59:bsp/bsp_encoder.c **** 
+  60:bsp/bsp_encoder.c ****     gpio_init.GPIO_Pin = BOARD_ENC_LEFT_B_PIN;
+ 166              		.loc 1 60 5 view .LVU36
+ 167              		.loc 1 60 24 is_stmt 0 view .LVU37
+ 168 005a 0223     		movs	r3, #2
+ 169 005c ADF80430 		strh	r3, [sp, #4]	@ movhi
+  61:bsp/bsp_encoder.c ****     GPIO_Init(BOARD_ENC_LEFT_B_GPIO, &gpio_init);
+ 170              		.loc 1 61 5 is_stmt 1 view .LVU38
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\cclODOoi.s 			page 5
+
+
+ 171 0060 2146     		mov	r1, r4
+ 172 0062 2846     		mov	r0, r5
+ 173 0064 FFF7FEFF 		bl	GPIO_Init
+ 174              	.LVL14:
+  62:bsp/bsp_encoder.c **** 
+  63:bsp/bsp_encoder.c ****     gpio_init.GPIO_Pin = BOARD_ENC_RIGHT_A_PIN | BOARD_ENC_RIGHT_B_PIN;
+ 175              		.loc 1 63 5 view .LVU39
+ 176              		.loc 1 63 24 is_stmt 0 view .LVU40
+ 177 0068 C023     		movs	r3, #192
+ 178 006a ADF80430 		strh	r3, [sp, #4]	@ movhi
+  64:bsp/bsp_encoder.c ****     GPIO_Init(BOARD_ENC_RIGHT_GPIO, &gpio_init);
+ 179              		.loc 1 64 5 is_stmt 1 view .LVU41
+ 180 006e 2146     		mov	r1, r4
+ 181 0070 0B48     		ldr	r0, .L5+8
+ 182 0072 FFF7FEFF 		bl	GPIO_Init
+ 183              	.LVL15:
+  65:bsp/bsp_encoder.c **** 
+  66:bsp/bsp_encoder.c ****     /* 预分频 0：每个边沿都计，分辨率最高 */
+  67:bsp/bsp_encoder.c ****     BSP_Encoder_ConfigTimer(BOARD_ENC_LEFT_TIM, 0U);
+ 184              		.loc 1 67 5 view .LVU42
+ 185 0076 0021     		movs	r1, #0
+ 186 0078 4FF08040 		mov	r0, #1073741824
+ 187 007c FFF7FEFF 		bl	BSP_Encoder_ConfigTimer
+ 188              	.LVL16:
+  68:bsp/bsp_encoder.c ****     BSP_Encoder_ConfigTimer(BOARD_ENC_RIGHT_TIM, 0U);
+ 189              		.loc 1 68 5 view .LVU43
+ 190 0080 0021     		movs	r1, #0
+ 191 0082 0848     		ldr	r0, .L5+12
+ 192 0084 FFF7FEFF 		bl	BSP_Encoder_ConfigTimer
+ 193              	.LVL17:
+  69:bsp/bsp_encoder.c **** 
+  70:bsp/bsp_encoder.c ****     s_last_left = 0;
+ 194              		.loc 1 70 5 view .LVU44
+ 195              		.loc 1 70 17 is_stmt 0 view .LVU45
+ 196 0088 0023     		movs	r3, #0
+ 197 008a 074A     		ldr	r2, .L5+16
+ 198 008c 1380     		strh	r3, [r2]	@ movhi
+  71:bsp/bsp_encoder.c ****     s_last_right = 0;
+ 199              		.loc 1 71 5 is_stmt 1 view .LVU46
+ 200              		.loc 1 71 18 is_stmt 0 view .LVU47
+ 201 008e 074A     		ldr	r2, .L5+20
+ 202 0090 1380     		strh	r3, [r2]	@ movhi
+  72:bsp/bsp_encoder.c **** }
+ 203              		.loc 1 72 1 view .LVU48
+ 204 0092 03B0     		add	sp, sp, #12
+ 205              		.cfi_def_cfa_offset 12
+ 206              		@ sp needed
+ 207 0094 30BD     		pop	{r4, r5, pc}
+ 208              	.L6:
+ 209 0096 00BF     		.align	2
+ 210              	.L5:
+ 211 0098 00023000 		.word	3146240
+ 212 009c 00080140 		.word	1073809408
+ 213 00a0 000C0140 		.word	1073810432
+ 214 00a4 00080040 		.word	1073743872
+ 215 00a8 00000000 		.word	s_last_left
+ 216 00ac 00000000 		.word	s_last_right
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\cclODOoi.s 			page 6
+
+
+ 217              		.cfi_endproc
+ 218              	.LFE30:
+ 220              		.section	.text.BSP_Encoder_ReadLeftCount,"ax",%progbits
+ 221              		.align	1
+ 222              		.global	BSP_Encoder_ReadLeftCount
+ 223              		.syntax unified
+ 224              		.thumb
+ 225              		.thumb_func
+ 227              	BSP_Encoder_ReadLeftCount:
+ 228              	.LFB31:
+  73:bsp/bsp_encoder.c **** 
+  74:bsp/bsp_encoder.c **** int16_t BSP_Encoder_ReadLeftCount(void)
+  75:bsp/bsp_encoder.c **** {
+ 229              		.loc 1 75 1 is_stmt 1 view -0
+ 230              		.cfi_startproc
+ 231              		@ args = 0, pretend = 0, frame = 0
+ 232              		@ frame_needed = 0, uses_anonymous_args = 0
+ 233 0000 08B5     		push	{r3, lr}
+ 234              		.cfi_def_cfa_offset 8
+ 235              		.cfi_offset 3, -8
+ 236              		.cfi_offset 14, -4
+  76:bsp/bsp_encoder.c ****     return (int16_t)(TIM_GetCounter(BOARD_ENC_LEFT_TIM) & 0xFFFFU);
+ 237              		.loc 1 76 5 view .LVU50
+ 238              		.loc 1 76 22 is_stmt 0 view .LVU51
+ 239 0002 4FF08040 		mov	r0, #1073741824
+ 240 0006 FFF7FEFF 		bl	TIM_GetCounter
+ 241              	.LVL18:
+  77:bsp/bsp_encoder.c **** }
+ 242              		.loc 1 77 1 view .LVU52
+ 243 000a 00B2     		sxth	r0, r0
+ 244 000c 08BD     		pop	{r3, pc}
+ 245              		.cfi_endproc
+ 246              	.LFE31:
+ 248              		.section	.text.BSP_Encoder_ReadRightCount,"ax",%progbits
+ 249              		.align	1
+ 250              		.global	BSP_Encoder_ReadRightCount
+ 251              		.syntax unified
+ 252              		.thumb
+ 253              		.thumb_func
+ 255              	BSP_Encoder_ReadRightCount:
+ 256              	.LFB32:
+  78:bsp/bsp_encoder.c **** 
+  79:bsp/bsp_encoder.c **** int16_t BSP_Encoder_ReadRightCount(void)
+  80:bsp/bsp_encoder.c **** {
+ 257              		.loc 1 80 1 is_stmt 1 view -0
+ 258              		.cfi_startproc
+ 259              		@ args = 0, pretend = 0, frame = 0
+ 260              		@ frame_needed = 0, uses_anonymous_args = 0
+ 261 0000 08B5     		push	{r3, lr}
+ 262              		.cfi_def_cfa_offset 8
+ 263              		.cfi_offset 3, -8
+ 264              		.cfi_offset 14, -4
+  81:bsp/bsp_encoder.c ****     return (int16_t)(TIM_GetCounter(BOARD_ENC_RIGHT_TIM) & 0xFFFFU);
+ 265              		.loc 1 81 5 view .LVU54
+ 266              		.loc 1 81 22 is_stmt 0 view .LVU55
+ 267 0002 0248     		ldr	r0, .L11
+ 268 0004 FFF7FEFF 		bl	TIM_GetCounter
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\cclODOoi.s 			page 7
+
+
+ 269              	.LVL19:
+  82:bsp/bsp_encoder.c **** }
+ 270              		.loc 1 82 1 view .LVU56
+ 271 0008 00B2     		sxth	r0, r0
+ 272 000a 08BD     		pop	{r3, pc}
+ 273              	.L12:
+ 274              		.align	2
+ 275              	.L11:
+ 276 000c 00080040 		.word	1073743872
+ 277              		.cfi_endproc
+ 278              	.LFE32:
+ 280              		.section	.text.BSP_Encoder_GetLeftDelta,"ax",%progbits
+ 281              		.align	1
+ 282              		.global	BSP_Encoder_GetLeftDelta
+ 283              		.syntax unified
+ 284              		.thumb
+ 285              		.thumb_func
+ 287              	BSP_Encoder_GetLeftDelta:
+ 288              	.LFB33:
+  83:bsp/bsp_encoder.c **** 
+  84:bsp/bsp_encoder.c **** int16_t BSP_Encoder_GetLeftDelta(void)
+  85:bsp/bsp_encoder.c **** {
+ 289              		.loc 1 85 1 is_stmt 1 view -0
+ 290              		.cfi_startproc
+ 291              		@ args = 0, pretend = 0, frame = 0
+ 292              		@ frame_needed = 0, uses_anonymous_args = 0
+ 293 0000 08B5     		push	{r3, lr}
+ 294              		.cfi_def_cfa_offset 8
+ 295              		.cfi_offset 3, -8
+ 296              		.cfi_offset 14, -4
+  86:bsp/bsp_encoder.c ****     int16_t now = BSP_Encoder_ReadLeftCount();
+ 297              		.loc 1 86 5 view .LVU58
+ 298              		.loc 1 86 19 is_stmt 0 view .LVU59
+ 299 0002 FFF7FEFF 		bl	BSP_Encoder_ReadLeftCount
+ 300              	.LVL20:
+  87:bsp/bsp_encoder.c ****     /* int16 相减天然处理 16 位回绕 */
+  88:bsp/bsp_encoder.c ****     int16_t delta = (int16_t)(now - s_last_left);
+ 301              		.loc 1 88 5 is_stmt 1 view .LVU60
+ 302              		.loc 1 88 35 is_stmt 0 view .LVU61
+ 303 0006 034A     		ldr	r2, .L15
+ 304 0008 1388     		ldrh	r3, [r2]
+ 305 000a C31A     		subs	r3, r0, r3
+ 306              	.LVL21:
+  89:bsp/bsp_encoder.c **** 
+  90:bsp/bsp_encoder.c ****     s_last_left = now;
+ 307              		.loc 1 90 5 is_stmt 1 view .LVU62
+ 308              		.loc 1 90 17 is_stmt 0 view .LVU63
+ 309 000c 1080     		strh	r0, [r2]	@ movhi
+  91:bsp/bsp_encoder.c **** 
+  92:bsp/bsp_encoder.c ****     return delta;
+ 310              		.loc 1 92 5 is_stmt 1 view .LVU64
+  93:bsp/bsp_encoder.c **** }
+ 311              		.loc 1 93 1 is_stmt 0 view .LVU65
+ 312 000e 18B2     		sxth	r0, r3
+ 313              	.LVL22:
+ 314              		.loc 1 93 1 view .LVU66
+ 315 0010 08BD     		pop	{r3, pc}
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\cclODOoi.s 			page 8
+
+
+ 316              	.LVL23:
+ 317              	.L16:
+ 318              		.loc 1 93 1 view .LVU67
+ 319 0012 00BF     		.align	2
+ 320              	.L15:
+ 321 0014 00000000 		.word	s_last_left
+ 322              		.cfi_endproc
+ 323              	.LFE33:
+ 325              		.section	.text.BSP_Encoder_GetRightDelta,"ax",%progbits
+ 326              		.align	1
+ 327              		.global	BSP_Encoder_GetRightDelta
+ 328              		.syntax unified
+ 329              		.thumb
+ 330              		.thumb_func
+ 332              	BSP_Encoder_GetRightDelta:
+ 333              	.LFB34:
+  94:bsp/bsp_encoder.c **** 
+  95:bsp/bsp_encoder.c **** int16_t BSP_Encoder_GetRightDelta(void)
+  96:bsp/bsp_encoder.c **** {
+ 334              		.loc 1 96 1 is_stmt 1 view -0
+ 335              		.cfi_startproc
+ 336              		@ args = 0, pretend = 0, frame = 0
+ 337              		@ frame_needed = 0, uses_anonymous_args = 0
+ 338 0000 08B5     		push	{r3, lr}
+ 339              		.cfi_def_cfa_offset 8
+ 340              		.cfi_offset 3, -8
+ 341              		.cfi_offset 14, -4
+  97:bsp/bsp_encoder.c ****     int16_t now = BSP_Encoder_ReadRightCount();
+ 342              		.loc 1 97 5 view .LVU69
+ 343              		.loc 1 97 19 is_stmt 0 view .LVU70
+ 344 0002 FFF7FEFF 		bl	BSP_Encoder_ReadRightCount
+ 345              	.LVL24:
+  98:bsp/bsp_encoder.c ****     int16_t delta = (int16_t)(now - s_last_right);
+ 346              		.loc 1 98 5 is_stmt 1 view .LVU71
+ 347              		.loc 1 98 35 is_stmt 0 view .LVU72
+ 348 0006 034A     		ldr	r2, .L19
+ 349 0008 1388     		ldrh	r3, [r2]
+ 350 000a C31A     		subs	r3, r0, r3
+ 351              	.LVL25:
+  99:bsp/bsp_encoder.c **** 
+ 100:bsp/bsp_encoder.c ****     s_last_right = now;
+ 352              		.loc 1 100 5 is_stmt 1 view .LVU73
+ 353              		.loc 1 100 18 is_stmt 0 view .LVU74
+ 354 000c 1080     		strh	r0, [r2]	@ movhi
+ 101:bsp/bsp_encoder.c **** 
+ 102:bsp/bsp_encoder.c ****     return delta;
+ 355              		.loc 1 102 5 is_stmt 1 view .LVU75
+ 103:bsp/bsp_encoder.c **** }
+ 356              		.loc 1 103 1 is_stmt 0 view .LVU76
+ 357 000e 18B2     		sxth	r0, r3
+ 358              	.LVL26:
+ 359              		.loc 1 103 1 view .LVU77
+ 360 0010 08BD     		pop	{r3, pc}
+ 361              	.LVL27:
+ 362              	.L20:
+ 363              		.loc 1 103 1 view .LVU78
+ 364 0012 00BF     		.align	2
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\cclODOoi.s 			page 9
+
+
+ 365              	.L19:
+ 366 0014 00000000 		.word	s_last_right
+ 367              		.cfi_endproc
+ 368              	.LFE34:
+ 370              		.section	.bss.s_last_right,"aw",%nobits
+ 371              		.align	1
+ 374              	s_last_right:
+ 375 0000 0000     		.space	2
+ 376              		.section	.bss.s_last_left,"aw",%nobits
+ 377              		.align	1
+ 380              	s_last_left:
+ 381 0000 0000     		.space	2
+ 382              		.text
+ 383              	.Letext0:
+ 384              		.file 2 "D:/Microsoft VS code/stm32tools/@xpack-dev-tools/arm-none-eabi-gcc/15.2.1-1.1.1/.content/
+ 385              		.file 3 "D:/Microsoft VS code/stm32tools/@xpack-dev-tools/arm-none-eabi-gcc/15.2.1-1.1.1/.content/
+ 386              		.file 4 "Drivers/CMSIS/stm32f10x.h"
+ 387              		.file 5 "Drivers/STM32F10x_StdPeriph_Driver/inc/stm32f10x_gpio.h"
+ 388              		.file 6 "Drivers/STM32F10x_StdPeriph_Driver/inc/stm32f10x_tim.h"
+ 389              		.file 7 "Drivers/STM32F10x_StdPeriph_Driver/inc/stm32f10x_rcc.h"
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\cclODOoi.s 			page 10
+
+
+DEFINED SYMBOLS
+                            *ABS*:00000000 bsp_encoder.c
+C:\Users\XIANGR~1\AppData\Local\Temp\cclODOoi.s:19     .text.BSP_Encoder_ConfigTimer:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\cclODOoi.s:24     .text.BSP_Encoder_ConfigTimer:00000000 BSP_Encoder_ConfigTimer
+C:\Users\XIANGR~1\AppData\Local\Temp\cclODOoi.s:92     .text.BSP_Encoder_Init:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\cclODOoi.s:98     .text.BSP_Encoder_Init:00000000 BSP_Encoder_Init
+C:\Users\XIANGR~1\AppData\Local\Temp\cclODOoi.s:211    .text.BSP_Encoder_Init:00000098 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\cclODOoi.s:380    .bss.s_last_left:00000000 s_last_left
+C:\Users\XIANGR~1\AppData\Local\Temp\cclODOoi.s:374    .bss.s_last_right:00000000 s_last_right
+C:\Users\XIANGR~1\AppData\Local\Temp\cclODOoi.s:221    .text.BSP_Encoder_ReadLeftCount:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\cclODOoi.s:227    .text.BSP_Encoder_ReadLeftCount:00000000 BSP_Encoder_ReadLeftCount
+C:\Users\XIANGR~1\AppData\Local\Temp\cclODOoi.s:249    .text.BSP_Encoder_ReadRightCount:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\cclODOoi.s:255    .text.BSP_Encoder_ReadRightCount:00000000 BSP_Encoder_ReadRightCount
+C:\Users\XIANGR~1\AppData\Local\Temp\cclODOoi.s:276    .text.BSP_Encoder_ReadRightCount:0000000c $d
+C:\Users\XIANGR~1\AppData\Local\Temp\cclODOoi.s:281    .text.BSP_Encoder_GetLeftDelta:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\cclODOoi.s:287    .text.BSP_Encoder_GetLeftDelta:00000000 BSP_Encoder_GetLeftDelta
+C:\Users\XIANGR~1\AppData\Local\Temp\cclODOoi.s:321    .text.BSP_Encoder_GetLeftDelta:00000014 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\cclODOoi.s:326    .text.BSP_Encoder_GetRightDelta:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\cclODOoi.s:332    .text.BSP_Encoder_GetRightDelta:00000000 BSP_Encoder_GetRightDelta
+C:\Users\XIANGR~1\AppData\Local\Temp\cclODOoi.s:366    .text.BSP_Encoder_GetRightDelta:00000014 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\cclODOoi.s:371    .bss.s_last_right:00000000 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\cclODOoi.s:377    .bss.s_last_left:00000000 $d
+
+UNDEFINED SYMBOLS
+TIM_TimeBaseInit
+TIM_EncoderInterfaceConfig
+TIM_SetCounter
+TIM_Cmd
+RCC_APB2PeriphClockCmd
+GPIO_PinRemapConfig
+RCC_APB1PeriphClockCmd
+GPIO_Init
+TIM_GetCounter

@@ -1,0 +1,95 @@
+# STM32 for VSCode 工程配置
+# 用途：让 bmd.stm32-for-vscode 认出本工程（CMake 工程没有 CubeMX 生成的 Makefile）。
+# 该文件名是插件的激活条件之一，存在即会在左侧活动栏点亮 ST 面板。
+# 删掉这个文件即可完全回到纯 CMake 流程，不影响 CMake 构建。
+
+target: Chassis_2026
+# 语言：本工程只有 C（无 C++）
+language: C
+# release 构建用的优化等级（debug 构建固定用 -Og -g）
+optimization: O0
+
+# ---- MCU ----
+# targetMCU 必须是 OpenOCD 的 target 脚本名：本工程 openocd.cfg 里是 target/stm32f1x.cfg
+targetMCU: stm32f1x
+cpu: cortex-m3
+# F103 没有 FPU，留空；float-abi 用软件浮点
+fpu: ""
+floatAbi: soft
+
+# 链接脚本（相对工程根目录）
+ldscript: STM32F103C8_FLASH.ld
+
+# ---- 宏定义（与 CMakeLists.txt 的 target_compile_definitions 一致）----
+cDefinitions:
+  - USE_STDPERIPH_DRIVER
+  - STM32F10X_MD
+cxxDefinitions: []
+asDefinitions: []
+
+# ---- 编译选项 ----
+# 注意：这里刻意不加 -Werror。CMake 侧对 SPL 和 oled.c 单独放宽了告警，
+# 而 STM32Make.make 不支持按文件设置编译选项，加 -Werror 可能被第三方代码的告警卡住。
+# 需要严格模式时请用 CMake 构建。
+cFlags:
+  - -Wall
+  - -Wextra
+  - -ffunction-sections
+  - -fdata-sections
+  - -Wno-missing-braces
+cxxFlags: []
+assemblyFlags:
+  - -Wall
+
+# ---- 链接选项（与 CMakeLists.txt 的 target_link_options 对齐）----
+linkerFlags:
+  - -specs=nano.specs
+  - -specs=nosys.specs
+  - -Wl,--print-memory-usage
+
+libraries:
+  - m
+libraryDirectories: []
+
+# ---- 头文件目录（与 CMakeLists.txt 的 target_include_directories 一致）----
+includeDirectories:
+  - Core/Inc
+  - Drivers/CMSIS
+  - Drivers/STM32F10x_StdPeriph_Driver/inc
+  - System
+  - bsp
+  - modules
+  - config
+  - application
+
+# ---- 源文件（与 CMakeLists.txt 的 SOURCES 一致）----
+# 注意：启动文件 startup_stm32f10x_md.s 不要写在这里。
+# 插件会自动 glob **/startup_*.s 并把它加进 ASM_SOURCES，重复列出会导致重复定义。
+sourceFiles:
+  - startup_stm32f10x_md.s
+  - Core/Src/main.c
+  - Core/Src/stm32f10x_it.c
+  - Drivers/CMSIS/system_stm32f10x.c
+  - Drivers/STM32F10x_StdPeriph_Driver/src/misc.c
+  - Drivers/STM32F10x_StdPeriph_Driver/src/stm32f10x_gpio.c
+  - Drivers/STM32F10x_StdPeriph_Driver/src/stm32f10x_rcc.c
+  - Drivers/STM32F10x_StdPeriph_Driver/src/stm32f10x_tim.c
+  - Drivers/STM32F10x_StdPeriph_Driver/src/stm32f10x_usart.c
+  - System/Delay.c
+  - bsp/bsp_uart.c
+  - bsp/bsp_motor_pwm.c
+  - bsp/bsp_line_gpio.c
+  - bsp/bsp_key.c
+  - bsp/bsp_soft_i2c.c
+  - bsp/bsp_encoder.c
+  - bsp/bsp_ultrasonic.c
+  - modules/line_sensor.c
+  - modules/motor_driver.c
+  - modules/vision_link.c
+  - modules/distance_sensor.c
+  - modules/oled.c
+  - application/chassis_task.c
+
+# 工程里有自定义 Makefile（CMake 包装脚本），不是 CubeMX 生成的，
+# 关掉"没有 Makefile"的弹窗，避免每次构建都被问一次。
+suppressMakefileWarning: true

@@ -1,0 +1,1037 @@
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s 			page 1
+
+
+   1              		.cpu cortex-m3
+   2              		.arch armv7-m
+   3              		.fpu softvfp
+   4              		.eabi_attribute 20, 1
+   5              		.eabi_attribute 21, 1
+   6              		.eabi_attribute 23, 3
+   7              		.eabi_attribute 24, 1
+   8              		.eabi_attribute 25, 1
+   9              		.eabi_attribute 26, 1
+  10              		.eabi_attribute 30, 1
+  11              		.eabi_attribute 34, 1
+  12              		.eabi_attribute 18, 4
+  13              		.file	"vision_link.c"
+  14              		.text
+  15              	.Ltext0:
+  16              		.cfi_sections	.debug_frame
+  17              		.file 1 "modules/vision_link.c"
+  18              		.section	.text.VisionLink_ReadInt16Be,"ax",%progbits
+  19              		.align	1
+  20              		.syntax unified
+  21              		.thumb
+  22              		.thumb_func
+  24              	VisionLink_ReadInt16Be:
+  25              	.LVL0:
+  26              	.LFB0:
+   1:modules/vision_link.c **** #include "vision_link.h"
+   2:modules/vision_link.c **** 
+   3:modules/vision_link.c **** #include <stdbool.h>
+   4:modules/vision_link.c **** 
+   5:modules/vision_link.c **** #include "bsp_uart.h"
+   6:modules/vision_link.c **** #include "chassis_config.h"
+   7:modules/vision_link.c **** #include "Delay.h"
+   8:modules/vision_link.c **** 
+   9:modules/vision_link.c **** /* 帧结构与常量：必须与云台板 modules/link_protocol.c 以及
+  10:modules/vision_link.c ****  * docs/双板分工与协议.md 三处保持一致。 */
+  11:modules/vision_link.c **** #define LINK_FRAME_LEN          13U
+  12:modules/vision_link.c **** #define LINK_HEAD_LEN           4U
+  13:modules/vision_link.c **** #define LINK_HEAD_0             0xAAU
+  14:modules/vision_link.c **** #define LINK_HEAD_1             0x55U
+  15:modules/vision_link.c **** #define LINK_TYPE               0x02U
+  16:modules/vision_link.c **** #define LINK_LENGTH             0x08U
+  17:modules/vision_link.c **** #define LINK_CHECKSUM_INDEX     12U
+  18:modules/vision_link.c **** 
+  19:modules/vision_link.c **** #define LINK_FLAG_DETECTED      0x01U
+  20:modules/vision_link.c **** 
+  21:modules/vision_link.c **** static VisionLink_t s_link;
+  22:modules/vision_link.c **** 
+  23:modules/vision_link.c **** /* 大端读取 */
+  24:modules/vision_link.c **** static int16_t VisionLink_ReadInt16Be(const uint8_t *data)
+  25:modules/vision_link.c **** {
+  27              		.loc 1 25 1 view -0
+  28              		.cfi_startproc
+  29              		@ args = 0, pretend = 0, frame = 0
+  30              		@ frame_needed = 0, uses_anonymous_args = 0
+  31              		@ link register save eliminated.
+  26:modules/vision_link.c ****     return (int16_t)(((uint16_t)data[0] << 8) | (uint16_t)data[1]);
+  32              		.loc 1 26 5 view .LVU1
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s 			page 2
+
+
+  33              		.loc 1 26 37 is_stmt 0 view .LVU2
+  34 0000 0378     		ldrb	r3, [r0]	@ zero_extendqisi2
+  35              		.loc 1 26 63 view .LVU3
+  36 0002 4078     		ldrb	r0, [r0, #1]	@ zero_extendqisi2
+  37              	.LVL1:
+  38              		.loc 1 26 12 view .LVU4
+  39 0004 40EA0320 		orr	r0, r0, r3, lsl #8
+  27:modules/vision_link.c **** }
+  40              		.loc 1 27 1 view .LVU5
+  41 0008 00B2     		sxth	r0, r0
+  42 000a 7047     		bx	lr
+  43              		.cfi_endproc
+  44              	.LFE0:
+  46              		.section	.text.VisionLink_ReadUint16Be,"ax",%progbits
+  47              		.align	1
+  48              		.syntax unified
+  49              		.thumb
+  50              		.thumb_func
+  52              	VisionLink_ReadUint16Be:
+  53              	.LVL2:
+  54              	.LFB1:
+  28:modules/vision_link.c **** 
+  29:modules/vision_link.c **** static uint16_t VisionLink_ReadUint16Be(const uint8_t *data)
+  30:modules/vision_link.c **** {
+  55              		.loc 1 30 1 is_stmt 1 view -0
+  56              		.cfi_startproc
+  57              		@ args = 0, pretend = 0, frame = 0
+  58              		@ frame_needed = 0, uses_anonymous_args = 0
+  59              		@ link register save eliminated.
+  31:modules/vision_link.c ****     return (uint16_t)(((uint16_t)data[0] << 8) | (uint16_t)data[1]);
+  60              		.loc 1 31 5 view .LVU7
+  61              		.loc 1 31 38 is_stmt 0 view .LVU8
+  62 0000 0278     		ldrb	r2, [r0]	@ zero_extendqisi2
+  63              		.loc 1 31 64 view .LVU9
+  64 0002 4078     		ldrb	r0, [r0, #1]	@ zero_extendqisi2
+  65              	.LVL3:
+  32:modules/vision_link.c **** }
+  66              		.loc 1 32 1 view .LVU10
+  67 0004 40EA0220 		orr	r0, r0, r2, lsl #8
+  68 0008 7047     		bx	lr
+  69              		.cfi_endproc
+  70              	.LFE1:
+  72              		.section	.text.VisionLink_IsHeaderAt,"ax",%progbits
+  73              		.align	1
+  74              		.syntax unified
+  75              		.thumb
+  76              		.thumb_func
+  78              	VisionLink_IsHeaderAt:
+  79              	.LVL4:
+  80              	.LFB2:
+  33:modules/vision_link.c **** 
+  34:modules/vision_link.c **** /* offset 处是不是完整的 4 字节帧头 */
+  35:modules/vision_link.c **** static uint8_t VisionLink_IsHeaderAt(uint16_t offset)
+  36:modules/vision_link.c **** {
+  81              		.loc 1 36 1 is_stmt 1 view -0
+  82              		.cfi_startproc
+  83              		@ args = 0, pretend = 0, frame = 8
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s 			page 3
+
+
+  84              		@ frame_needed = 0, uses_anonymous_args = 0
+  85              		.loc 1 36 1 is_stmt 0 view .LVU12
+  86 0000 10B5     		push	{r4, lr}
+  87              		.cfi_def_cfa_offset 8
+  88              		.cfi_offset 4, -8
+  89              		.cfi_offset 14, -4
+  90 0002 82B0     		sub	sp, sp, #8
+  91              		.cfi_def_cfa_offset 16
+  92 0004 0446     		mov	r4, r0
+  37:modules/vision_link.c ****     uint8_t byte = 0U;
+  93              		.loc 1 37 5 is_stmt 1 view .LVU13
+  94              		.loc 1 37 13 is_stmt 0 view .LVU14
+  95 0006 0023     		movs	r3, #0
+  96 0008 8DF80730 		strb	r3, [sp, #7]
+  38:modules/vision_link.c **** 
+  39:modules/vision_link.c ****     if (BSP_UART_PeekAt(offset, &byte) == 0U || byte != LINK_HEAD_0) {
+  97              		.loc 1 39 5 is_stmt 1 view .LVU15
+  98              		.loc 1 39 9 is_stmt 0 view .LVU16
+  99 000c 0DF10701 		add	r1, sp, #7
+ 100 0010 FFF7FEFF 		bl	BSP_UART_PeekAt
+ 101              	.LVL5:
+ 102              		.loc 1 39 8 discriminator 1 view .LVU17
+ 103 0014 20B1     		cbz	r0, .L4
+ 104              		.loc 1 39 54 discriminator 2 view .LVU18
+ 105 0016 9DF80730 		ldrb	r3, [sp, #7]	@ zero_extendqisi2
+ 106              		.loc 1 39 46 discriminator 2 view .LVU19
+ 107 001a AA2B     		cmp	r3, #170
+ 108 001c 02D0     		beq	.L11
+  40:modules/vision_link.c ****         return 0U;
+ 109              		.loc 1 40 16 view .LVU20
+ 110 001e 0020     		movs	r0, #0
+ 111              	.L4:
+  41:modules/vision_link.c ****     }
+  42:modules/vision_link.c ****     if (BSP_UART_PeekAt((uint16_t)(offset + 1U), &byte) == 0U || byte != LINK_HEAD_1) {
+  43:modules/vision_link.c ****         return 0U;
+  44:modules/vision_link.c ****     }
+  45:modules/vision_link.c ****     if (BSP_UART_PeekAt((uint16_t)(offset + 2U), &byte) == 0U || byte != LINK_TYPE) {
+  46:modules/vision_link.c ****         return 0U;
+  47:modules/vision_link.c ****     }
+  48:modules/vision_link.c ****     if (BSP_UART_PeekAt((uint16_t)(offset + 3U), &byte) == 0U || byte != LINK_LENGTH) {
+  49:modules/vision_link.c ****         return 0U;
+  50:modules/vision_link.c ****     }
+  51:modules/vision_link.c **** 
+  52:modules/vision_link.c ****     return 1U;
+  53:modules/vision_link.c **** }
+ 112              		.loc 1 53 1 view .LVU21
+ 113 0020 02B0     		add	sp, sp, #8
+ 114              		.cfi_remember_state
+ 115              		.cfi_def_cfa_offset 8
+ 116              		@ sp needed
+ 117 0022 10BD     		pop	{r4, pc}
+ 118              	.LVL6:
+ 119              	.L11:
+ 120              		.cfi_restore_state
+  42:modules/vision_link.c ****         return 0U;
+ 121              		.loc 1 42 5 is_stmt 1 view .LVU22
+  42:modules/vision_link.c ****         return 0U;
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s 			page 4
+
+
+ 122              		.loc 1 42 25 is_stmt 0 view .LVU23
+ 123 0024 601C     		adds	r0, r4, #1
+  42:modules/vision_link.c ****         return 0U;
+ 124              		.loc 1 42 9 view .LVU24
+ 125 0026 0DF10701 		add	r1, sp, #7
+ 126 002a 80B2     		uxth	r0, r0
+ 127 002c FFF7FEFF 		bl	BSP_UART_PeekAt
+ 128              	.LVL7:
+  42:modules/vision_link.c ****         return 0U;
+ 129              		.loc 1 42 8 discriminator 1 view .LVU25
+ 130 0030 0028     		cmp	r0, #0
+ 131 0032 F5D0     		beq	.L4
+  42:modules/vision_link.c ****         return 0U;
+ 132              		.loc 1 42 71 discriminator 2 view .LVU26
+ 133 0034 9DF80730 		ldrb	r3, [sp, #7]	@ zero_extendqisi2
+  42:modules/vision_link.c ****         return 0U;
+ 134              		.loc 1 42 63 discriminator 2 view .LVU27
+ 135 0038 552B     		cmp	r3, #85
+ 136 003a 01D0     		beq	.L12
+  43:modules/vision_link.c ****     }
+ 137              		.loc 1 43 16 view .LVU28
+ 138 003c 0020     		movs	r0, #0
+ 139 003e EFE7     		b	.L4
+ 140              	.L12:
+  45:modules/vision_link.c ****         return 0U;
+ 141              		.loc 1 45 5 is_stmt 1 view .LVU29
+  45:modules/vision_link.c ****         return 0U;
+ 142              		.loc 1 45 25 is_stmt 0 view .LVU30
+ 143 0040 A01C     		adds	r0, r4, #2
+  45:modules/vision_link.c ****         return 0U;
+ 144              		.loc 1 45 9 view .LVU31
+ 145 0042 0DF10701 		add	r1, sp, #7
+ 146 0046 80B2     		uxth	r0, r0
+ 147 0048 FFF7FEFF 		bl	BSP_UART_PeekAt
+ 148              	.LVL8:
+  45:modules/vision_link.c ****         return 0U;
+ 149              		.loc 1 45 8 discriminator 1 view .LVU32
+ 150 004c 0028     		cmp	r0, #0
+ 151 004e E7D0     		beq	.L4
+  45:modules/vision_link.c ****         return 0U;
+ 152              		.loc 1 45 71 discriminator 2 view .LVU33
+ 153 0050 9DF80730 		ldrb	r3, [sp, #7]	@ zero_extendqisi2
+  45:modules/vision_link.c ****         return 0U;
+ 154              		.loc 1 45 63 discriminator 2 view .LVU34
+ 155 0054 022B     		cmp	r3, #2
+ 156 0056 01D0     		beq	.L13
+  46:modules/vision_link.c ****     }
+ 157              		.loc 1 46 16 view .LVU35
+ 158 0058 0020     		movs	r0, #0
+ 159 005a E1E7     		b	.L4
+ 160              	.L13:
+  48:modules/vision_link.c ****         return 0U;
+ 161              		.loc 1 48 5 is_stmt 1 view .LVU36
+  48:modules/vision_link.c ****         return 0U;
+ 162              		.loc 1 48 25 is_stmt 0 view .LVU37
+ 163 005c 2046     		mov	r0, r4
+ 164 005e 0330     		adds	r0, r0, #3
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s 			page 5
+
+
+  48:modules/vision_link.c ****         return 0U;
+ 165              		.loc 1 48 9 view .LVU38
+ 166 0060 0DF10701 		add	r1, sp, #7
+ 167 0064 80B2     		uxth	r0, r0
+ 168 0066 FFF7FEFF 		bl	BSP_UART_PeekAt
+ 169              	.LVL9:
+  48:modules/vision_link.c ****         return 0U;
+ 170              		.loc 1 48 8 discriminator 1 view .LVU39
+ 171 006a 0028     		cmp	r0, #0
+ 172 006c D8D0     		beq	.L4
+  48:modules/vision_link.c ****         return 0U;
+ 173              		.loc 1 48 71 discriminator 2 view .LVU40
+ 174 006e 9DF80730 		ldrb	r3, [sp, #7]	@ zero_extendqisi2
+  48:modules/vision_link.c ****         return 0U;
+ 175              		.loc 1 48 63 discriminator 2 view .LVU41
+ 176 0072 082B     		cmp	r3, #8
+ 177 0074 01D1     		bne	.L9
+  52:modules/vision_link.c **** }
+ 178              		.loc 1 52 12 view .LVU42
+ 179 0076 0120     		movs	r0, #1
+ 180 0078 D2E7     		b	.L4
+ 181              	.L9:
+  49:modules/vision_link.c ****     }
+ 182              		.loc 1 49 16 view .LVU43
+ 183 007a 0020     		movs	r0, #0
+ 184 007c D0E7     		b	.L4
+ 185              		.cfi_endproc
+ 186              	.LFE2:
+ 188              		.section	.text.VisionLink_Init,"ax",%progbits
+ 189              		.align	1
+ 190              		.global	VisionLink_Init
+ 191              		.syntax unified
+ 192              		.thumb
+ 193              		.thumb_func
+ 195              	VisionLink_Init:
+ 196              	.LFB3:
+  54:modules/vision_link.c **** 
+  55:modules/vision_link.c **** void VisionLink_Init(void)
+  56:modules/vision_link.c **** {
+ 197              		.loc 1 56 1 is_stmt 1 view -0
+ 198              		.cfi_startproc
+ 199              		@ args = 0, pretend = 0, frame = 0
+ 200              		@ frame_needed = 0, uses_anonymous_args = 0
+ 201 0000 08B5     		push	{r3, lr}
+ 202              		.cfi_def_cfa_offset 8
+ 203              		.cfi_offset 3, -8
+ 204              		.cfi_offset 14, -4
+  57:modules/vision_link.c ****     s_link.yaw_dev_tenth_deg = 0;
+ 205              		.loc 1 57 5 view .LVU45
+ 206              		.loc 1 57 30 is_stmt 0 view .LVU46
+ 207 0002 074B     		ldr	r3, .L16
+ 208 0004 0022     		movs	r2, #0
+ 209 0006 4FF00001 		mov	r1, #0	@ movhi
+ 210 000a 1A80     		strh	r2, [r3]	@ movhi
+  58:modules/vision_link.c ****     s_link.offset_x = 0;
+ 211              		.loc 1 58 5 is_stmt 1 view .LVU47
+ 212              		.loc 1 58 21 is_stmt 0 view .LVU48
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s 			page 6
+
+
+ 213 000c 5A80     		strh	r2, [r3, #2]	@ movhi
+  59:modules/vision_link.c ****     s_link.distance_cm = 0U;
+ 214              		.loc 1 59 5 is_stmt 1 view .LVU49
+ 215              		.loc 1 59 24 is_stmt 0 view .LVU50
+ 216 000e 9A80     		strh	r2, [r3, #4]	@ movhi
+  60:modules/vision_link.c ****     s_link.detected = 0U;
+ 217              		.loc 1 60 5 is_stmt 1 view .LVU51
+ 218              		.loc 1 60 21 is_stmt 0 view .LVU52
+ 219 0010 9971     		strb	r1, [r3, #6]
+  61:modules/vision_link.c ****     s_link.fresh = 0U;
+ 220              		.loc 1 61 5 is_stmt 1 view .LVU53
+ 221              		.loc 1 61 18 is_stmt 0 view .LVU54
+ 222 0012 D971     		strb	r1, [r3, #7]
+  62:modules/vision_link.c ****     s_link.frame_count = 0U;
+ 223              		.loc 1 62 5 is_stmt 1 view .LVU55
+ 224              		.loc 1 62 24 is_stmt 0 view .LVU56
+ 225 0014 9A60     		str	r2, [r3, #8]
+  63:modules/vision_link.c ****     s_link.checksum_error_count = 0U;
+ 226              		.loc 1 63 5 is_stmt 1 view .LVU57
+ 227              		.loc 1 63 33 is_stmt 0 view .LVU58
+ 228 0016 DA60     		str	r2, [r3, #12]
+  64:modules/vision_link.c ****     s_link.last_ms = 0U;
+ 229              		.loc 1 64 5 is_stmt 1 view .LVU59
+ 230              		.loc 1 64 20 is_stmt 0 view .LVU60
+ 231 0018 1A61     		str	r2, [r3, #16]
+  65:modules/vision_link.c **** 
+  66:modules/vision_link.c ****     BSP_UART_Init();
+ 232              		.loc 1 66 5 is_stmt 1 view .LVU61
+ 233 001a FFF7FEFF 		bl	BSP_UART_Init
+ 234              	.LVL10:
+  67:modules/vision_link.c **** }
+ 235              		.loc 1 67 1 is_stmt 0 view .LVU62
+ 236 001e 08BD     		pop	{r3, pc}
+ 237              	.L17:
+ 238              		.align	2
+ 239              	.L16:
+ 240 0020 00000000 		.word	s_link
+ 241              		.cfi_endproc
+ 242              	.LFE3:
+ 244              		.section	.text.VisionLink_Poll,"ax",%progbits
+ 245              		.align	1
+ 246              		.global	VisionLink_Poll
+ 247              		.syntax unified
+ 248              		.thumb
+ 249              		.thumb_func
+ 251              	VisionLink_Poll:
+ 252              	.LFB4:
+  68:modules/vision_link.c **** 
+  69:modules/vision_link.c **** void VisionLink_Poll(void)
+  70:modules/vision_link.c **** {
+ 253              		.loc 1 70 1 is_stmt 1 view -0
+ 254              		.cfi_startproc
+ 255              		@ args = 0, pretend = 0, frame = 16
+ 256              		@ frame_needed = 0, uses_anonymous_args = 0
+ 257 0000 70B5     		push	{r4, r5, r6, lr}
+ 258              		.cfi_def_cfa_offset 16
+ 259              		.cfi_offset 4, -16
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s 			page 7
+
+
+ 260              		.cfi_offset 5, -12
+ 261              		.cfi_offset 6, -8
+ 262              		.cfi_offset 14, -4
+ 263 0002 84B0     		sub	sp, sp, #16
+ 264              		.cfi_def_cfa_offset 32
+ 265              	.L19:
+  71:modules/vision_link.c ****     uint16_t available;
+ 266              		.loc 1 71 5 view .LVU64
+  72:modules/vision_link.c ****     uint16_t position;
+ 267              		.loc 1 72 5 view .LVU65
+  73:modules/vision_link.c ****     uint8_t raw[LINK_FRAME_LEN];
+ 268              		.loc 1 73 5 view .LVU66
+  74:modules/vision_link.c **** 
+  75:modules/vision_link.c ****     for (;;) {
+ 269              		.loc 1 75 5 view .LVU67
+  76:modules/vision_link.c ****         available = BSP_UART_GetRxCount();
+ 270              		.loc 1 76 9 view .LVU68
+ 271              		.loc 1 76 21 is_stmt 0 view .LVU69
+ 272 0004 FFF7FEFF 		bl	BSP_UART_GetRxCount
+ 273              	.LVL11:
+  77:modules/vision_link.c **** 
+  78:modules/vision_link.c ****         if (available < LINK_FRAME_LEN) {
+ 274              		.loc 1 78 9 is_stmt 1 view .LVU70
+ 275              		.loc 1 78 12 is_stmt 0 view .LVU71
+ 276 0008 0C28     		cmp	r0, #12
+ 277 000a 24D9     		bls	.L20
+ 278 000c 0646     		mov	r6, r0
+  79:modules/vision_link.c ****             break;
+  80:modules/vision_link.c ****         }
+  81:modules/vision_link.c **** 
+  82:modules/vision_link.c ****         /* 滑窗找帧头 */
+  83:modules/vision_link.c ****         position = 0U;
+ 279              		.loc 1 83 18 view .LVU72
+ 280 000e 0024     		movs	r4, #0
+ 281 0010 01E0     		b	.L21
+ 282              	.LVL12:
+ 283              	.L40:
+  84:modules/vision_link.c ****         while ((uint16_t)(position + LINK_FRAME_LEN) <= available) {
+  85:modules/vision_link.c ****             if (VisionLink_IsHeaderAt(position) != 0U) {
+  86:modules/vision_link.c ****                 break;
+  87:modules/vision_link.c ****             }
+  88:modules/vision_link.c ****             position++;
+ 284              		.loc 1 88 13 is_stmt 1 view .LVU73
+ 285              		.loc 1 88 21 is_stmt 0 view .LVU74
+ 286 0012 0134     		adds	r4, r4, #1
+ 287              	.LVL13:
+ 288              		.loc 1 88 21 view .LVU75
+ 289 0014 A4B2     		uxth	r4, r4
+ 290              	.LVL14:
+ 291              	.L21:
+  84:modules/vision_link.c ****         while ((uint16_t)(position + LINK_FRAME_LEN) <= available) {
+ 292              		.loc 1 84 54 is_stmt 1 view .LVU76
+  84:modules/vision_link.c ****         while ((uint16_t)(position + LINK_FRAME_LEN) <= available) {
+ 293              		.loc 1 84 16 is_stmt 0 view .LVU77
+ 294 0016 04F10D05 		add	r5, r4, #13
+ 295 001a ADB2     		uxth	r5, r5
+  84:modules/vision_link.c ****         while ((uint16_t)(position + LINK_FRAME_LEN) <= available) {
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s 			page 8
+
+
+ 296              		.loc 1 84 54 view .LVU78
+ 297 001c B542     		cmp	r5, r6
+ 298 001e 04D8     		bhi	.L22
+  85:modules/vision_link.c ****                 break;
+ 299              		.loc 1 85 13 is_stmt 1 view .LVU79
+  85:modules/vision_link.c ****                 break;
+ 300              		.loc 1 85 17 is_stmt 0 view .LVU80
+ 301 0020 2046     		mov	r0, r4
+ 302 0022 FFF7FEFF 		bl	VisionLink_IsHeaderAt
+ 303              	.LVL15:
+  85:modules/vision_link.c ****                 break;
+ 304              		.loc 1 85 16 discriminator 1 view .LVU81
+ 305 0026 0028     		cmp	r0, #0
+ 306 0028 F3D0     		beq	.L40
+ 307              	.L22:
+  89:modules/vision_link.c ****         }
+  90:modules/vision_link.c **** 
+  91:modules/vision_link.c ****         /* 没找到：丢掉前面的垃圾，保留末尾 3 字节（帧头可能跨边界） */
+  92:modules/vision_link.c ****         if ((uint16_t)(position + LINK_FRAME_LEN) > available) {
+ 308              		.loc 1 92 9 is_stmt 1 view .LVU82
+ 309              		.loc 1 92 12 is_stmt 0 view .LVU83
+ 310 002a B542     		cmp	r5, r6
+ 311 002c 0CD8     		bhi	.L41
+  93:modules/vision_link.c ****             uint16_t drop = available;
+  94:modules/vision_link.c **** 
+  95:modules/vision_link.c ****             if (drop > (LINK_HEAD_LEN - 1U)) {
+  96:modules/vision_link.c ****                 drop = (uint16_t)(drop - (LINK_HEAD_LEN - 1U));
+  97:modules/vision_link.c ****             }
+  98:modules/vision_link.c **** 
+  99:modules/vision_link.c ****             BSP_UART_Skip(drop);
+ 100:modules/vision_link.c ****             break;
+ 101:modules/vision_link.c ****         }
+ 102:modules/vision_link.c **** 
+ 103:modules/vision_link.c ****         if (position > 0U) {
+ 312              		.loc 1 103 9 is_stmt 1 view .LVU84
+ 313              		.loc 1 103 12 is_stmt 0 view .LVU85
+ 314 002e F4B9     		cbnz	r4, .L42
+ 315              	.L26:
+  83:modules/vision_link.c ****         while ((uint16_t)(position + LINK_FRAME_LEN) <= available) {
+ 316              		.loc 1 83 18 view .LVU86
+ 317 0030 0024     		movs	r4, #0
+ 318              	.LVL16:
+ 319              	.L29:
+ 320              	.LBB2:
+ 104:modules/vision_link.c ****             BSP_UART_Skip(position);
+ 105:modules/vision_link.c ****         }
+ 106:modules/vision_link.c **** 
+ 107:modules/vision_link.c ****         {
+ 108:modules/vision_link.c ****             uint16_t i;
+ 109:modules/vision_link.c **** 
+ 110:modules/vision_link.c ****             for (i = 0U; i < LINK_FRAME_LEN; i++) {
+ 321              		.loc 1 110 28 is_stmt 1 discriminator 1 view .LVU87
+ 322 0032 0C2C     		cmp	r4, #12
+ 323 0034 1FD8     		bhi	.L43
+ 111:modules/vision_link.c ****                 if (BSP_UART_PeekAt(i, &raw[i]) == 0U) {
+ 324              		.loc 1 111 17 view .LVU88
+ 325              		.loc 1 111 21 is_stmt 0 view .LVU89
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s 			page 9
+
+
+ 326 0036 6946     		mov	r1, sp
+ 327 0038 2144     		add	r1, r1, r4
+ 328 003a 2046     		mov	r0, r4
+ 329 003c FFF7FEFF 		bl	BSP_UART_PeekAt
+ 330              	.LVL17:
+ 331              		.loc 1 111 20 discriminator 1 view .LVU90
+ 332 0040 98B1     		cbz	r0, .L18
+ 110:modules/vision_link.c ****                 if (BSP_UART_PeekAt(i, &raw[i]) == 0U) {
+ 333              		.loc 1 110 47 is_stmt 1 discriminator 2 view .LVU91
+ 334 0042 0134     		adds	r4, r4, #1
+ 335              	.LVL18:
+ 110:modules/vision_link.c ****                 if (BSP_UART_PeekAt(i, &raw[i]) == 0U) {
+ 336              		.loc 1 110 47 is_stmt 0 discriminator 2 view .LVU92
+ 337 0044 A4B2     		uxth	r4, r4
+ 338              	.LVL19:
+ 110:modules/vision_link.c ****                 if (BSP_UART_PeekAt(i, &raw[i]) == 0U) {
+ 339              		.loc 1 110 47 discriminator 2 view .LVU93
+ 340 0046 F4E7     		b	.L29
+ 341              	.LVL20:
+ 342              	.L41:
+ 110:modules/vision_link.c ****                 if (BSP_UART_PeekAt(i, &raw[i]) == 0U) {
+ 343              		.loc 1 110 47 discriminator 2 view .LVU94
+ 344              	.LBE2:
+ 345              	.LBB3:
+  93:modules/vision_link.c **** 
+ 346              		.loc 1 93 13 is_stmt 1 view .LVU95
+  95:modules/vision_link.c ****                 drop = (uint16_t)(drop - (LINK_HEAD_LEN - 1U));
+ 347              		.loc 1 95 13 view .LVU96
+  95:modules/vision_link.c ****                 drop = (uint16_t)(drop - (LINK_HEAD_LEN - 1U));
+ 348              		.loc 1 95 16 is_stmt 0 view .LVU97
+ 349 0048 032E     		cmp	r6, #3
+ 350 004a 01D9     		bls	.L25
+  96:modules/vision_link.c ****             }
+ 351              		.loc 1 96 17 is_stmt 1 view .LVU98
+  96:modules/vision_link.c ****             }
+ 352              		.loc 1 96 22 is_stmt 0 view .LVU99
+ 353 004c 033E     		subs	r6, r6, #3
+ 354              	.LVL21:
+  96:modules/vision_link.c ****             }
+ 355              		.loc 1 96 22 view .LVU100
+ 356 004e B6B2     		uxth	r6, r6
+ 357              	.LVL22:
+ 358              	.L25:
+  99:modules/vision_link.c ****             break;
+ 359              		.loc 1 99 13 is_stmt 1 view .LVU101
+ 360 0050 3046     		mov	r0, r6
+ 361 0052 FFF7FEFF 		bl	BSP_UART_Skip
+ 362              	.LVL23:
+ 100:modules/vision_link.c ****         }
+ 363              		.loc 1 100 13 view .LVU102
+ 364              	.L20:
+ 100:modules/vision_link.c ****         }
+ 365              		.loc 1 100 13 is_stmt 0 view .LVU103
+ 366              	.LBE3:
+ 112:modules/vision_link.c ****                     return;             /* 数据不够，等下次 */
+ 113:modules/vision_link.c ****                 }
+ 114:modules/vision_link.c ****             }
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s 			page 10
+
+
+ 115:modules/vision_link.c ****         }
+ 116:modules/vision_link.c **** 
+ 117:modules/vision_link.c ****         {
+ 118:modules/vision_link.c ****             uint8_t checksum = 0U;
+ 119:modules/vision_link.c ****             uint8_t i;
+ 120:modules/vision_link.c **** 
+ 121:modules/vision_link.c ****             for (i = 0U; i < LINK_CHECKSUM_INDEX; i++) {
+ 122:modules/vision_link.c ****                 checksum ^= raw[i];
+ 123:modules/vision_link.c ****             }
+ 124:modules/vision_link.c **** 
+ 125:modules/vision_link.c ****             if (checksum != raw[LINK_CHECKSUM_INDEX]) {
+ 126:modules/vision_link.c ****                 s_link.checksum_error_count++;
+ 127:modules/vision_link.c ****                 BSP_UART_Skip(1U);
+ 128:modules/vision_link.c ****                 continue;
+ 129:modules/vision_link.c ****             }
+ 130:modules/vision_link.c ****         }
+ 131:modules/vision_link.c **** 
+ 132:modules/vision_link.c ****         BSP_UART_Skip(LINK_FRAME_LEN);
+ 133:modules/vision_link.c **** 
+ 134:modules/vision_link.c ****         s_link.yaw_dev_tenth_deg = VisionLink_ReadInt16Be(&raw[4]);
+ 135:modules/vision_link.c ****         s_link.offset_x = VisionLink_ReadInt16Be(&raw[6]);
+ 136:modules/vision_link.c ****         s_link.distance_cm = VisionLink_ReadUint16Be(&raw[8]);
+ 137:modules/vision_link.c ****         s_link.detected = ((raw[10] & LINK_FLAG_DETECTED) != 0U) ? 1U : 0U;
+ 138:modules/vision_link.c ****         s_link.frame_count++;
+ 139:modules/vision_link.c ****         s_link.last_ms = Delay_GetMs();
+ 140:modules/vision_link.c ****     }
+ 141:modules/vision_link.c **** 
+ 142:modules/vision_link.c ****     /* 刷新「可用」标志：有人 + 未超时。
+ 143:modules/vision_link.c ****      * 断线时必须判为不可用 —— 否则会拿着最后一次的偏角一直转向。 */
+ 144:modules/vision_link.c ****     if (s_link.detected == 0U || s_link.frame_count == 0U) {
+ 367              		.loc 1 144 5 is_stmt 1 view .LVU104
+ 368              		.loc 1 144 15 is_stmt 0 view .LVU105
+ 369 0056 2B4B     		ldr	r3, .L45
+ 370 0058 9B79     		ldrb	r3, [r3, #6]	@ zero_extendqisi2
+ 371              		.loc 1 144 8 view .LVU106
+ 372 005a 1BB1     		cbz	r3, .L35
+ 373              		.loc 1 144 40 discriminator 1 view .LVU107
+ 374 005c 294B     		ldr	r3, .L45
+ 375 005e 9B68     		ldr	r3, [r3, #8]
+ 376              		.loc 1 144 31 discriminator 1 view .LVU108
+ 377 0060 002B     		cmp	r3, #0
+ 378 0062 3ED1     		bne	.L36
+ 379              	.L35:
+ 145:modules/vision_link.c ****         s_link.fresh = 0U;
+ 380              		.loc 1 145 9 is_stmt 1 view .LVU109
+ 381              		.loc 1 145 22 is_stmt 0 view .LVU110
+ 382 0064 274B     		ldr	r3, .L45
+ 383 0066 0022     		movs	r2, #0
+ 384 0068 DA71     		strb	r2, [r3, #7]
+ 385              	.L18:
+ 146:modules/vision_link.c ****     } else if ((uint32_t)(Delay_GetMs() - s_link.last_ms) > CHASSIS_LINK_TIMEOUT_MS) {
+ 147:modules/vision_link.c ****         s_link.fresh = 0U;
+ 148:modules/vision_link.c ****     } else {
+ 149:modules/vision_link.c ****         s_link.fresh = 1U;
+ 150:modules/vision_link.c ****     }
+ 151:modules/vision_link.c **** }
+ 386              		.loc 1 151 1 view .LVU111
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s 			page 11
+
+
+ 387 006a 04B0     		add	sp, sp, #16
+ 388              		.cfi_remember_state
+ 389              		.cfi_def_cfa_offset 16
+ 390              		@ sp needed
+ 391 006c 70BD     		pop	{r4, r5, r6, pc}
+ 392              	.LVL24:
+ 393              	.L42:
+ 394              		.cfi_restore_state
+ 104:modules/vision_link.c ****         }
+ 395              		.loc 1 104 13 is_stmt 1 view .LVU112
+ 396 006e 2046     		mov	r0, r4
+ 397 0070 FFF7FEFF 		bl	BSP_UART_Skip
+ 398              	.LVL25:
+ 399 0074 DCE7     		b	.L26
+ 400              	.LVL26:
+ 401              	.L43:
+ 402              	.LBB4:
+ 121:modules/vision_link.c ****                 checksum ^= raw[i];
+ 403              		.loc 1 121 20 is_stmt 0 view .LVU113
+ 404 0076 0023     		movs	r3, #0
+ 118:modules/vision_link.c ****             uint8_t i;
+ 405              		.loc 1 118 21 view .LVU114
+ 406 0078 1A46     		mov	r2, r3
+ 407 007a 07E0     		b	.L31
+ 408              	.LVL27:
+ 409              	.L32:
+ 122:modules/vision_link.c ****             }
+ 410              		.loc 1 122 17 is_stmt 1 view .LVU115
+ 122:modules/vision_link.c ****             }
+ 411              		.loc 1 122 32 is_stmt 0 view .LVU116
+ 412 007c 03F11001 		add	r1, r3, #16
+ 413 0080 6944     		add	r1, sp, r1
+ 414 0082 11F8101C 		ldrb	r1, [r1, #-16]	@ zero_extendqisi2
+ 122:modules/vision_link.c ****             }
+ 415              		.loc 1 122 26 view .LVU117
+ 416 0086 4A40     		eors	r2, r2, r1
+ 417              	.LVL28:
+ 121:modules/vision_link.c ****                 checksum ^= raw[i];
+ 418              		.loc 1 121 52 is_stmt 1 discriminator 3 view .LVU118
+ 419 0088 0133     		adds	r3, r3, #1
+ 420              	.LVL29:
+ 121:modules/vision_link.c ****                 checksum ^= raw[i];
+ 421              		.loc 1 121 52 is_stmt 0 discriminator 3 view .LVU119
+ 422 008a DBB2     		uxtb	r3, r3
+ 423              	.LVL30:
+ 424              	.L31:
+ 121:modules/vision_link.c ****                 checksum ^= raw[i];
+ 425              		.loc 1 121 28 is_stmt 1 discriminator 1 view .LVU120
+ 426 008c 0B2B     		cmp	r3, #11
+ 427 008e F5D9     		bls	.L32
+ 125:modules/vision_link.c ****                 s_link.checksum_error_count++;
+ 428              		.loc 1 125 13 view .LVU121
+ 125:modules/vision_link.c ****                 s_link.checksum_error_count++;
+ 429              		.loc 1 125 32 is_stmt 0 view .LVU122
+ 430 0090 9DF80C30 		ldrb	r3, [sp, #12]	@ zero_extendqisi2
+ 431              	.LVL31:
+ 125:modules/vision_link.c ****                 s_link.checksum_error_count++;
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s 			page 12
+
+
+ 432              		.loc 1 125 16 view .LVU123
+ 433 0094 9342     		cmp	r3, r2
+ 434 0096 1CD1     		bne	.L44
+ 435              	.LBE4:
+ 132:modules/vision_link.c **** 
+ 436              		.loc 1 132 9 is_stmt 1 view .LVU124
+ 437 0098 0D20     		movs	r0, #13
+ 438 009a FFF7FEFF 		bl	BSP_UART_Skip
+ 439              	.LVL32:
+ 134:modules/vision_link.c ****         s_link.offset_x = VisionLink_ReadInt16Be(&raw[6]);
+ 440              		.loc 1 134 9 view .LVU125
+ 134:modules/vision_link.c ****         s_link.offset_x = VisionLink_ReadInt16Be(&raw[6]);
+ 441              		.loc 1 134 36 is_stmt 0 view .LVU126
+ 442 009e 01A8     		add	r0, sp, #4
+ 443 00a0 FFF7FEFF 		bl	VisionLink_ReadInt16Be
+ 444              	.LVL33:
+ 134:modules/vision_link.c ****         s_link.offset_x = VisionLink_ReadInt16Be(&raw[6]);
+ 445              		.loc 1 134 34 discriminator 1 view .LVU127
+ 446 00a4 174C     		ldr	r4, .L45
+ 447              	.LVL34:
+ 134:modules/vision_link.c ****         s_link.offset_x = VisionLink_ReadInt16Be(&raw[6]);
+ 448              		.loc 1 134 34 discriminator 1 view .LVU128
+ 449 00a6 2080     		strh	r0, [r4]	@ movhi
+ 135:modules/vision_link.c ****         s_link.distance_cm = VisionLink_ReadUint16Be(&raw[8]);
+ 450              		.loc 1 135 9 is_stmt 1 view .LVU129
+ 135:modules/vision_link.c ****         s_link.distance_cm = VisionLink_ReadUint16Be(&raw[8]);
+ 451              		.loc 1 135 27 is_stmt 0 view .LVU130
+ 452 00a8 0DF10600 		add	r0, sp, #6
+ 453 00ac FFF7FEFF 		bl	VisionLink_ReadInt16Be
+ 454              	.LVL35:
+ 135:modules/vision_link.c ****         s_link.distance_cm = VisionLink_ReadUint16Be(&raw[8]);
+ 455              		.loc 1 135 25 discriminator 1 view .LVU131
+ 456 00b0 6080     		strh	r0, [r4, #2]	@ movhi
+ 136:modules/vision_link.c ****         s_link.detected = ((raw[10] & LINK_FLAG_DETECTED) != 0U) ? 1U : 0U;
+ 457              		.loc 1 136 9 is_stmt 1 view .LVU132
+ 136:modules/vision_link.c ****         s_link.detected = ((raw[10] & LINK_FLAG_DETECTED) != 0U) ? 1U : 0U;
+ 458              		.loc 1 136 30 is_stmt 0 view .LVU133
+ 459 00b2 02A8     		add	r0, sp, #8
+ 460 00b4 FFF7FEFF 		bl	VisionLink_ReadUint16Be
+ 461              	.LVL36:
+ 136:modules/vision_link.c ****         s_link.detected = ((raw[10] & LINK_FLAG_DETECTED) != 0U) ? 1U : 0U;
+ 462              		.loc 1 136 28 discriminator 1 view .LVU134
+ 463 00b8 A080     		strh	r0, [r4, #4]	@ movhi
+ 137:modules/vision_link.c ****         s_link.frame_count++;
+ 464              		.loc 1 137 9 is_stmt 1 view .LVU135
+ 137:modules/vision_link.c ****         s_link.frame_count++;
+ 465              		.loc 1 137 32 is_stmt 0 view .LVU136
+ 466 00ba 9DF80A30 		ldrb	r3, [sp, #10]	@ zero_extendqisi2
+ 137:modules/vision_link.c ****         s_link.frame_count++;
+ 467              		.loc 1 137 71 view .LVU137
+ 468 00be 03F00103 		and	r3, r3, #1
+ 137:modules/vision_link.c ****         s_link.frame_count++;
+ 469              		.loc 1 137 25 view .LVU138
+ 470 00c2 A371     		strb	r3, [r4, #6]
+ 138:modules/vision_link.c ****         s_link.last_ms = Delay_GetMs();
+ 471              		.loc 1 138 9 is_stmt 1 view .LVU139
+ 138:modules/vision_link.c ****         s_link.last_ms = Delay_GetMs();
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s 			page 13
+
+
+ 472              		.loc 1 138 15 is_stmt 0 view .LVU140
+ 473 00c4 A368     		ldr	r3, [r4, #8]
+ 138:modules/vision_link.c ****         s_link.last_ms = Delay_GetMs();
+ 474              		.loc 1 138 27 view .LVU141
+ 475 00c6 0133     		adds	r3, r3, #1
+ 476 00c8 A360     		str	r3, [r4, #8]
+ 139:modules/vision_link.c ****     }
+ 477              		.loc 1 139 9 is_stmt 1 view .LVU142
+ 139:modules/vision_link.c ****     }
+ 478              		.loc 1 139 26 is_stmt 0 view .LVU143
+ 479 00ca FFF7FEFF 		bl	Delay_GetMs
+ 480              	.LVL37:
+ 139:modules/vision_link.c ****     }
+ 481              		.loc 1 139 24 discriminator 1 view .LVU144
+ 482 00ce 2061     		str	r0, [r4, #16]
+ 483 00d0 98E7     		b	.L19
+ 484              	.LVL38:
+ 485              	.L44:
+ 486              	.LBB5:
+ 126:modules/vision_link.c ****                 BSP_UART_Skip(1U);
+ 487              		.loc 1 126 17 is_stmt 1 view .LVU145
+ 126:modules/vision_link.c ****                 BSP_UART_Skip(1U);
+ 488              		.loc 1 126 23 is_stmt 0 view .LVU146
+ 489 00d2 0C4A     		ldr	r2, .L45
+ 490              	.LVL39:
+ 126:modules/vision_link.c ****                 BSP_UART_Skip(1U);
+ 491              		.loc 1 126 23 view .LVU147
+ 492 00d4 D368     		ldr	r3, [r2, #12]
+ 126:modules/vision_link.c ****                 BSP_UART_Skip(1U);
+ 493              		.loc 1 126 44 view .LVU148
+ 494 00d6 0133     		adds	r3, r3, #1
+ 495 00d8 D360     		str	r3, [r2, #12]
+ 127:modules/vision_link.c ****                 continue;
+ 496              		.loc 1 127 17 is_stmt 1 view .LVU149
+ 497 00da 0120     		movs	r0, #1
+ 498 00dc FFF7FEFF 		bl	BSP_UART_Skip
+ 499              	.LVL40:
+ 128:modules/vision_link.c ****             }
+ 500              		.loc 1 128 17 view .LVU150
+ 501 00e0 90E7     		b	.L19
+ 502              	.LVL41:
+ 503              	.L36:
+ 128:modules/vision_link.c ****             }
+ 504              		.loc 1 128 17 is_stmt 0 view .LVU151
+ 505              	.LBE5:
+ 146:modules/vision_link.c ****         s_link.fresh = 0U;
+ 506              		.loc 1 146 12 is_stmt 1 view .LVU152
+ 146:modules/vision_link.c ****         s_link.fresh = 0U;
+ 507              		.loc 1 146 27 is_stmt 0 view .LVU153
+ 508 00e2 FFF7FEFF 		bl	Delay_GetMs
+ 509              	.LVL42:
+ 146:modules/vision_link.c ****         s_link.fresh = 0U;
+ 510              		.loc 1 146 49 discriminator 1 view .LVU154
+ 511 00e6 074B     		ldr	r3, .L45
+ 512 00e8 1B69     		ldr	r3, [r3, #16]
+ 146:modules/vision_link.c ****         s_link.fresh = 0U;
+ 513              		.loc 1 146 41 discriminator 1 view .LVU155
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s 			page 14
+
+
+ 514 00ea C31A     		subs	r3, r0, r3
+ 146:modules/vision_link.c ****         s_link.fresh = 0U;
+ 515              		.loc 1 146 15 discriminator 1 view .LVU156
+ 516 00ec B3F5FA7F 		cmp	r3, #500
+ 517 00f0 03D9     		bls	.L38
+ 147:modules/vision_link.c ****     } else {
+ 518              		.loc 1 147 9 is_stmt 1 view .LVU157
+ 147:modules/vision_link.c ****     } else {
+ 519              		.loc 1 147 22 is_stmt 0 view .LVU158
+ 520 00f2 044B     		ldr	r3, .L45
+ 521 00f4 0022     		movs	r2, #0
+ 522 00f6 DA71     		strb	r2, [r3, #7]
+ 523 00f8 B7E7     		b	.L18
+ 524              	.L38:
+ 149:modules/vision_link.c ****     }
+ 525              		.loc 1 149 9 is_stmt 1 view .LVU159
+ 149:modules/vision_link.c ****     }
+ 526              		.loc 1 149 22 is_stmt 0 view .LVU160
+ 527 00fa 024B     		ldr	r3, .L45
+ 528 00fc 0122     		movs	r2, #1
+ 529 00fe DA71     		strb	r2, [r3, #7]
+ 530 0100 B3E7     		b	.L18
+ 531              	.L46:
+ 532 0102 00BF     		.align	2
+ 533              	.L45:
+ 534 0104 00000000 		.word	s_link
+ 535              		.cfi_endproc
+ 536              	.LFE4:
+ 538              		.section	.text.VisionLink_Get,"ax",%progbits
+ 539              		.align	1
+ 540              		.global	VisionLink_Get
+ 541              		.syntax unified
+ 542              		.thumb
+ 543              		.thumb_func
+ 545              	VisionLink_Get:
+ 546              	.LVL43:
+ 547              	.LFB5:
+ 152:modules/vision_link.c **** 
+ 153:modules/vision_link.c **** VisionLink_t VisionLink_Get(void)
+ 154:modules/vision_link.c **** {
+ 548              		.loc 1 154 1 is_stmt 1 view -0
+ 549              		.cfi_startproc
+ 550              		@ args = 0, pretend = 0, frame = 0
+ 551              		@ frame_needed = 0, uses_anonymous_args = 0
+ 552              		.loc 1 154 1 is_stmt 0 view .LVU162
+ 553 0000 10B5     		push	{r4, lr}
+ 554              		.cfi_def_cfa_offset 8
+ 555              		.cfi_offset 4, -8
+ 556              		.cfi_offset 14, -4
+ 557 0002 0446     		mov	r4, r0
+ 155:modules/vision_link.c ****     return s_link;
+ 558              		.loc 1 155 5 is_stmt 1 view .LVU163
+ 559              		.loc 1 155 12 is_stmt 0 view .LVU164
+ 560 0004 8446     		mov	ip, r0
+ 561 0006 DFF818E0 		ldr	lr, .L49
+ 562 000a BEE80F00 		ldmia	lr!, {r0, r1, r2, r3}
+ 563              	.LVL44:
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s 			page 15
+
+
+ 564              		.loc 1 155 12 view .LVU165
+ 565 000e ACE80F00 		stmia	ip!, {r0, r1, r2, r3}
+ 566 0012 DEF80030 		ldr	r3, [lr]
+ 567 0016 CCF80030 		str	r3, [ip]
+ 156:modules/vision_link.c **** }
+ 568              		.loc 1 156 1 view .LVU166
+ 569 001a 2046     		mov	r0, r4
+ 570 001c 10BD     		pop	{r4, pc}
+ 571              	.LVL45:
+ 572              	.L50:
+ 573              		.loc 1 156 1 view .LVU167
+ 574 001e 00BF     		.align	2
+ 575              	.L49:
+ 576 0020 00000000 		.word	s_link
+ 577              		.cfi_endproc
+ 578              	.LFE5:
+ 580              		.section	.text.VisionLink_GetYawDevTenthDeg,"ax",%progbits
+ 581              		.align	1
+ 582              		.global	VisionLink_GetYawDevTenthDeg
+ 583              		.syntax unified
+ 584              		.thumb
+ 585              		.thumb_func
+ 587              	VisionLink_GetYawDevTenthDeg:
+ 588              	.LFB6:
+ 157:modules/vision_link.c **** 
+ 158:modules/vision_link.c **** int16_t VisionLink_GetYawDevTenthDeg(void)
+ 159:modules/vision_link.c **** {
+ 589              		.loc 1 159 1 is_stmt 1 view -0
+ 590              		.cfi_startproc
+ 591              		@ args = 0, pretend = 0, frame = 0
+ 592              		@ frame_needed = 0, uses_anonymous_args = 0
+ 593              		@ link register save eliminated.
+ 160:modules/vision_link.c ****     return s_link.yaw_dev_tenth_deg;
+ 594              		.loc 1 160 5 view .LVU169
+ 161:modules/vision_link.c **** }
+ 595              		.loc 1 161 1 is_stmt 0 view .LVU170
+ 596 0000 014B     		ldr	r3, .L52
+ 597 0002 B3F90000 		ldrsh	r0, [r3]
+ 598 0006 7047     		bx	lr
+ 599              	.L53:
+ 600              		.align	2
+ 601              	.L52:
+ 602 0008 00000000 		.word	s_link
+ 603              		.cfi_endproc
+ 604              	.LFE6:
+ 606              		.section	.text.VisionLink_GetOffsetX,"ax",%progbits
+ 607              		.align	1
+ 608              		.global	VisionLink_GetOffsetX
+ 609              		.syntax unified
+ 610              		.thumb
+ 611              		.thumb_func
+ 613              	VisionLink_GetOffsetX:
+ 614              	.LFB7:
+ 162:modules/vision_link.c **** 
+ 163:modules/vision_link.c **** int16_t VisionLink_GetOffsetX(void)
+ 164:modules/vision_link.c **** {
+ 615              		.loc 1 164 1 is_stmt 1 view -0
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s 			page 16
+
+
+ 616              		.cfi_startproc
+ 617              		@ args = 0, pretend = 0, frame = 0
+ 618              		@ frame_needed = 0, uses_anonymous_args = 0
+ 619              		@ link register save eliminated.
+ 165:modules/vision_link.c ****     return s_link.offset_x;
+ 620              		.loc 1 165 5 view .LVU172
+ 166:modules/vision_link.c **** }
+ 621              		.loc 1 166 1 is_stmt 0 view .LVU173
+ 622 0000 014B     		ldr	r3, .L55
+ 623 0002 B3F90200 		ldrsh	r0, [r3, #2]
+ 624 0006 7047     		bx	lr
+ 625              	.L56:
+ 626              		.align	2
+ 627              	.L55:
+ 628 0008 00000000 		.word	s_link
+ 629              		.cfi_endproc
+ 630              	.LFE7:
+ 632              		.section	.text.VisionLink_GetDistanceCm,"ax",%progbits
+ 633              		.align	1
+ 634              		.global	VisionLink_GetDistanceCm
+ 635              		.syntax unified
+ 636              		.thumb
+ 637              		.thumb_func
+ 639              	VisionLink_GetDistanceCm:
+ 640              	.LFB8:
+ 167:modules/vision_link.c **** 
+ 168:modules/vision_link.c **** uint16_t VisionLink_GetDistanceCm(void)
+ 169:modules/vision_link.c **** {
+ 641              		.loc 1 169 1 is_stmt 1 view -0
+ 642              		.cfi_startproc
+ 643              		@ args = 0, pretend = 0, frame = 0
+ 644              		@ frame_needed = 0, uses_anonymous_args = 0
+ 645              		@ link register save eliminated.
+ 170:modules/vision_link.c ****     return s_link.distance_cm;
+ 646              		.loc 1 170 5 view .LVU175
+ 171:modules/vision_link.c **** }
+ 647              		.loc 1 171 1 is_stmt 0 view .LVU176
+ 648 0000 014B     		ldr	r3, .L58
+ 649 0002 9888     		ldrh	r0, [r3, #4]
+ 650 0004 7047     		bx	lr
+ 651              	.L59:
+ 652 0006 00BF     		.align	2
+ 653              	.L58:
+ 654 0008 00000000 		.word	s_link
+ 655              		.cfi_endproc
+ 656              	.LFE8:
+ 658              		.section	.text.VisionLink_IsFresh,"ax",%progbits
+ 659              		.align	1
+ 660              		.global	VisionLink_IsFresh
+ 661              		.syntax unified
+ 662              		.thumb
+ 663              		.thumb_func
+ 665              	VisionLink_IsFresh:
+ 666              	.LFB9:
+ 172:modules/vision_link.c **** 
+ 173:modules/vision_link.c **** uint8_t VisionLink_IsFresh(void)
+ 174:modules/vision_link.c **** {
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s 			page 17
+
+
+ 667              		.loc 1 174 1 is_stmt 1 view -0
+ 668              		.cfi_startproc
+ 669              		@ args = 0, pretend = 0, frame = 0
+ 670              		@ frame_needed = 0, uses_anonymous_args = 0
+ 671              		@ link register save eliminated.
+ 175:modules/vision_link.c ****     return s_link.fresh;
+ 672              		.loc 1 175 5 view .LVU178
+ 176:modules/vision_link.c **** }
+ 673              		.loc 1 176 1 is_stmt 0 view .LVU179
+ 674 0000 014B     		ldr	r3, .L61
+ 675 0002 D879     		ldrb	r0, [r3, #7]	@ zero_extendqisi2
+ 676 0004 7047     		bx	lr
+ 677              	.L62:
+ 678 0006 00BF     		.align	2
+ 679              	.L61:
+ 680 0008 00000000 		.word	s_link
+ 681              		.cfi_endproc
+ 682              	.LFE9:
+ 684              		.section	.bss.s_link,"aw",%nobits
+ 685              		.align	2
+ 688              	s_link:
+ 689 0000 00000000 		.space	20
+ 689      00000000 
+ 689      00000000 
+ 689      00000000 
+ 689      00000000 
+ 690              		.text
+ 691              	.Letext0:
+ 692              		.file 2 "D:/Microsoft VS code/stm32tools/@xpack-dev-tools/arm-none-eabi-gcc/15.2.1-1.1.1/.content/
+ 693              		.file 3 "D:/Microsoft VS code/stm32tools/@xpack-dev-tools/arm-none-eabi-gcc/15.2.1-1.1.1/.content/
+ 694              		.file 4 "modules/vision_link.h"
+ 695              		.file 5 "System/Delay.h"
+ 696              		.file 6 "bsp/bsp_uart.h"
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s 			page 18
+
+
+DEFINED SYMBOLS
+                            *ABS*:00000000 vision_link.c
+C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s:19     .text.VisionLink_ReadInt16Be:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s:24     .text.VisionLink_ReadInt16Be:00000000 VisionLink_ReadInt16Be
+C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s:47     .text.VisionLink_ReadUint16Be:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s:52     .text.VisionLink_ReadUint16Be:00000000 VisionLink_ReadUint16Be
+C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s:73     .text.VisionLink_IsHeaderAt:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s:78     .text.VisionLink_IsHeaderAt:00000000 VisionLink_IsHeaderAt
+C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s:189    .text.VisionLink_Init:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s:195    .text.VisionLink_Init:00000000 VisionLink_Init
+C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s:240    .text.VisionLink_Init:00000020 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s:688    .bss.s_link:00000000 s_link
+C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s:245    .text.VisionLink_Poll:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s:251    .text.VisionLink_Poll:00000000 VisionLink_Poll
+C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s:534    .text.VisionLink_Poll:00000104 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s:539    .text.VisionLink_Get:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s:545    .text.VisionLink_Get:00000000 VisionLink_Get
+C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s:576    .text.VisionLink_Get:00000020 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s:581    .text.VisionLink_GetYawDevTenthDeg:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s:587    .text.VisionLink_GetYawDevTenthDeg:00000000 VisionLink_GetYawDevTenthDeg
+C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s:602    .text.VisionLink_GetYawDevTenthDeg:00000008 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s:607    .text.VisionLink_GetOffsetX:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s:613    .text.VisionLink_GetOffsetX:00000000 VisionLink_GetOffsetX
+C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s:628    .text.VisionLink_GetOffsetX:00000008 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s:633    .text.VisionLink_GetDistanceCm:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s:639    .text.VisionLink_GetDistanceCm:00000000 VisionLink_GetDistanceCm
+C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s:654    .text.VisionLink_GetDistanceCm:00000008 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s:659    .text.VisionLink_IsFresh:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s:665    .text.VisionLink_IsFresh:00000000 VisionLink_IsFresh
+C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s:680    .text.VisionLink_IsFresh:00000008 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccLZ46lO.s:685    .bss.s_link:00000000 $d
+
+UNDEFINED SYMBOLS
+BSP_UART_PeekAt
+BSP_UART_Init
+BSP_UART_GetRxCount
+BSP_UART_Skip
+Delay_GetMs

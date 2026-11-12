@@ -1,0 +1,528 @@
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s 			page 1
+
+
+   1              		.cpu cortex-m3
+   2              		.arch armv7-m
+   3              		.fpu softvfp
+   4              		.eabi_attribute 20, 1
+   5              		.eabi_attribute 21, 1
+   6              		.eabi_attribute 23, 3
+   7              		.eabi_attribute 24, 1
+   8              		.eabi_attribute 25, 1
+   9              		.eabi_attribute 26, 1
+  10              		.eabi_attribute 30, 1
+  11              		.eabi_attribute 34, 1
+  12              		.eabi_attribute 18, 4
+  13              		.file	"motor_driver.c"
+  14              		.text
+  15              	.Ltext0:
+  16              		.cfi_sections	.debug_frame
+  17              		.file 1 "modules/motor_driver.c"
+  18              		.section	.text.Motor_Clamp,"ax",%progbits
+  19              		.align	1
+  20              		.syntax unified
+  21              		.thumb
+  22              		.thumb_func
+  24              	Motor_Clamp:
+  25              	.LVL0:
+  26              	.LFB0:
+   1:modules/motor_driver.c **** #include "motor_driver.h"
+   2:modules/motor_driver.c **** 
+   3:modules/motor_driver.c **** #include "bsp_motor_pwm.h"
+   4:modules/motor_driver.c **** #include "chassis_config.h"
+   5:modules/motor_driver.c **** 
+   6:modules/motor_driver.c **** /* 目标值（上层要的）与输出值（真正给到硬件的）分开保存，
+   7:modules/motor_driver.c ****  * 两者之间的差距由斜率限制逐步弥合。 */
+   8:modules/motor_driver.c **** static int16_t s_left_target = 0;
+   9:modules/motor_driver.c **** static int16_t s_right_target = 0;
+  10:modules/motor_driver.c **** static int16_t s_left_output = 0;
+  11:modules/motor_driver.c **** static int16_t s_right_output = 0;
+  12:modules/motor_driver.c **** 
+  13:modules/motor_driver.c **** /* 把目标值夹到配置允许的范围 */
+  14:modules/motor_driver.c **** static int16_t Motor_Clamp(int16_t speed_per_mille)
+  15:modules/motor_driver.c **** {
+  27              		.loc 1 15 1 view -0
+  28              		.cfi_startproc
+  29              		@ args = 0, pretend = 0, frame = 0
+  30              		@ frame_needed = 0, uses_anonymous_args = 0
+  31              		@ link register save eliminated.
+  16:modules/motor_driver.c ****     if (speed_per_mille > (int16_t)CHASSIS_MOTOR_DUTY_MAX) {
+  32              		.loc 1 16 5 view .LVU1
+  33              		.loc 1 16 8 is_stmt 0 view .LVU2
+  34 0000 B0F52F7F 		cmp	r0, #700
+  35 0004 03DC     		bgt	.L3
+  17:modules/motor_driver.c ****         return (int16_t)CHASSIS_MOTOR_DUTY_MAX;
+  18:modules/motor_driver.c ****     }
+  19:modules/motor_driver.c ****     if (speed_per_mille < -(int16_t)CHASSIS_MOTOR_DUTY_MAX) {
+  36              		.loc 1 19 5 is_stmt 1 view .LVU3
+  37              		.loc 1 19 8 is_stmt 0 view .LVU4
+  38 0006 10F52F7F 		cmn	r0, #700
+  39 000a 03DB     		blt	.L4
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s 			page 2
+
+
+  40 000c 7047     		bx	lr
+  41              	.L3:
+  17:modules/motor_driver.c ****         return (int16_t)CHASSIS_MOTOR_DUTY_MAX;
+  42              		.loc 1 17 16 view .LVU5
+  43 000e 4FF42F70 		mov	r0, #700
+  44              	.LVL1:
+  17:modules/motor_driver.c ****         return (int16_t)CHASSIS_MOTOR_DUTY_MAX;
+  45              		.loc 1 17 16 view .LVU6
+  46 0012 7047     		bx	lr
+  47              	.LVL2:
+  48              	.L4:
+  20:modules/motor_driver.c ****         return -(int16_t)CHASSIS_MOTOR_DUTY_MAX;
+  49              		.loc 1 20 16 view .LVU7
+  50 0014 0048     		ldr	r0, .L5
+  51              	.LVL3:
+  21:modules/motor_driver.c ****     }
+  22:modules/motor_driver.c **** 
+  23:modules/motor_driver.c ****     return speed_per_mille;
+  24:modules/motor_driver.c **** }
+  52              		.loc 1 24 1 view .LVU8
+  53 0016 7047     		bx	lr
+  54              	.L6:
+  55              		.align	2
+  56              	.L5:
+  57 0018 44FDFFFF 		.word	-700
+  58              		.cfi_endproc
+  59              	.LFE0:
+  61              		.section	.text.Motor_RampToward,"ax",%progbits
+  62              		.align	1
+  63              		.syntax unified
+  64              		.thumb
+  65              		.thumb_func
+  67              	Motor_RampToward:
+  68              	.LVL4:
+  69              	.LFB1:
+  25:modules/motor_driver.c **** 
+  26:modules/motor_driver.c **** /* 朝目标靠近一步，步长 = CHASSIS_MOTOR_RAMP_PER_TICK */
+  27:modules/motor_driver.c **** static int16_t Motor_RampToward(int16_t current, int16_t target)
+  28:modules/motor_driver.c **** {
+  70              		.loc 1 28 1 is_stmt 1 view -0
+  71              		.cfi_startproc
+  72              		@ args = 0, pretend = 0, frame = 0
+  73              		@ frame_needed = 0, uses_anonymous_args = 0
+  74              		@ link register save eliminated.
+  29:modules/motor_driver.c ****     int16_t step = (int16_t)CHASSIS_MOTOR_RAMP_PER_TICK;
+  75              		.loc 1 29 5 view .LVU10
+  30:modules/motor_driver.c **** 
+  31:modules/motor_driver.c ****     /* 步长为 0 时直接跟随，避免下面加减无效果 */
+  32:modules/motor_driver.c ****     if (step <= 0) {
+  76              		.loc 1 32 5 view .LVU11
+  33:modules/motor_driver.c ****         return target;
+  34:modules/motor_driver.c ****     }
+  35:modules/motor_driver.c **** 
+  36:modules/motor_driver.c ****     if (target > current) {
+  77              		.loc 1 36 5 view .LVU12
+  78              		.loc 1 36 8 is_stmt 0 view .LVU13
+  79 0000 8142     		cmp	r1, r0
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s 			page 3
+
+
+  80 0002 04DD     		ble	.L8
+  37:modules/motor_driver.c ****         current = (int16_t)(current + step);
+  81              		.loc 1 37 9 is_stmt 1 view .LVU14
+  82              		.loc 1 37 37 is_stmt 0 view .LVU15
+  83 0004 3230     		adds	r0, r0, #50
+  84              	.LVL5:
+  85              		.loc 1 37 17 view .LVU16
+  86 0006 00B2     		sxth	r0, r0
+  87              	.LVL6:
+  38:modules/motor_driver.c ****         if (current > target) {
+  88              		.loc 1 38 9 is_stmt 1 view .LVU17
+  89              		.loc 1 38 12 is_stmt 0 view .LVU18
+  90 0008 8142     		cmp	r1, r0
+  91 000a 07DB     		blt	.L10
+  92 000c 7047     		bx	lr
+  93              	.L8:
+  39:modules/motor_driver.c ****             current = target;
+  40:modules/motor_driver.c ****         }
+  41:modules/motor_driver.c ****     } else if (target < current) {
+  94              		.loc 1 41 12 is_stmt 1 view .LVU19
+  95              		.loc 1 41 15 is_stmt 0 view .LVU20
+  96 000e 8142     		cmp	r1, r0
+  97 0010 07DA     		bge	.L9
+  42:modules/motor_driver.c ****         current = (int16_t)(current - step);
+  98              		.loc 1 42 9 is_stmt 1 view .LVU21
+  99              		.loc 1 42 37 is_stmt 0 view .LVU22
+ 100 0012 3238     		subs	r0, r0, #50
+ 101              	.LVL7:
+ 102              		.loc 1 42 17 view .LVU23
+ 103 0014 00B2     		sxth	r0, r0
+ 104              	.LVL8:
+  43:modules/motor_driver.c ****         if (current < target) {
+ 105              		.loc 1 43 9 is_stmt 1 view .LVU24
+ 106              		.loc 1 43 12 is_stmt 0 view .LVU25
+ 107 0016 8142     		cmp	r1, r0
+ 108 0018 02DC     		bgt	.L12
+ 109 001a 7047     		bx	lr
+ 110              	.L10:
+  39:modules/motor_driver.c ****             current = target;
+ 111              		.loc 1 39 21 view .LVU26
+ 112 001c 0846     		mov	r0, r1
+ 113              	.LVL9:
+  39:modules/motor_driver.c ****             current = target;
+ 114              		.loc 1 39 21 view .LVU27
+ 115 001e 7047     		bx	lr
+ 116              	.LVL10:
+ 117              	.L12:
+  44:modules/motor_driver.c ****             current = target;
+ 118              		.loc 1 44 21 view .LVU28
+ 119 0020 0846     		mov	r0, r1
+ 120              	.LVL11:
+ 121              	.L9:
+  45:modules/motor_driver.c ****         }
+  46:modules/motor_driver.c ****     }
+  47:modules/motor_driver.c **** 
+  48:modules/motor_driver.c ****     return current;
+ 122              		.loc 1 48 5 is_stmt 1 view .LVU29
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s 			page 4
+
+
+  49:modules/motor_driver.c **** }
+ 123              		.loc 1 49 1 is_stmt 0 view .LVU30
+ 124 0022 7047     		bx	lr
+ 125              		.cfi_endproc
+ 126              	.LFE1:
+ 128              		.section	.text.Motor_Init,"ax",%progbits
+ 129              		.align	1
+ 130              		.global	Motor_Init
+ 131              		.syntax unified
+ 132              		.thumb
+ 133              		.thumb_func
+ 135              	Motor_Init:
+ 136              	.LFB2:
+  50:modules/motor_driver.c **** 
+  51:modules/motor_driver.c **** void Motor_Init(void)
+  52:modules/motor_driver.c **** {
+ 137              		.loc 1 52 1 is_stmt 1 view -0
+ 138              		.cfi_startproc
+ 139              		@ args = 0, pretend = 0, frame = 0
+ 140              		@ frame_needed = 0, uses_anonymous_args = 0
+ 141 0000 08B5     		push	{r3, lr}
+ 142              		.cfi_def_cfa_offset 8
+ 143              		.cfi_offset 3, -8
+ 144              		.cfi_offset 14, -4
+  53:modules/motor_driver.c ****     s_left_target = 0;
+ 145              		.loc 1 53 5 view .LVU32
+ 146              		.loc 1 53 19 is_stmt 0 view .LVU33
+ 147 0002 0023     		movs	r3, #0
+ 148 0004 054A     		ldr	r2, .L15
+ 149 0006 1380     		strh	r3, [r2]	@ movhi
+  54:modules/motor_driver.c ****     s_right_target = 0;
+ 150              		.loc 1 54 5 is_stmt 1 view .LVU34
+ 151              		.loc 1 54 20 is_stmt 0 view .LVU35
+ 152 0008 054A     		ldr	r2, .L15+4
+ 153 000a 1380     		strh	r3, [r2]	@ movhi
+  55:modules/motor_driver.c ****     s_left_output = 0;
+ 154              		.loc 1 55 5 is_stmt 1 view .LVU36
+ 155              		.loc 1 55 19 is_stmt 0 view .LVU37
+ 156 000c 054A     		ldr	r2, .L15+8
+ 157 000e 1380     		strh	r3, [r2]	@ movhi
+  56:modules/motor_driver.c ****     s_right_output = 0;
+ 158              		.loc 1 56 5 is_stmt 1 view .LVU38
+ 159              		.loc 1 56 20 is_stmt 0 view .LVU39
+ 160 0010 054A     		ldr	r2, .L15+12
+ 161 0012 1380     		strh	r3, [r2]	@ movhi
+  57:modules/motor_driver.c **** 
+  58:modules/motor_driver.c ****     /* BSP 初始化末尾会 Stop()，保证上电滑行 */
+  59:modules/motor_driver.c ****     BSP_Motor_Init();
+ 162              		.loc 1 59 5 is_stmt 1 view .LVU40
+ 163 0014 FFF7FEFF 		bl	BSP_Motor_Init
+ 164              	.LVL12:
+  60:modules/motor_driver.c **** }
+ 165              		.loc 1 60 1 is_stmt 0 view .LVU41
+ 166 0018 08BD     		pop	{r3, pc}
+ 167              	.L16:
+ 168 001a 00BF     		.align	2
+ 169              	.L15:
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s 			page 5
+
+
+ 170 001c 00000000 		.word	s_left_target
+ 171 0020 00000000 		.word	s_right_target
+ 172 0024 00000000 		.word	s_left_output
+ 173 0028 00000000 		.word	s_right_output
+ 174              		.cfi_endproc
+ 175              	.LFE2:
+ 177              		.section	.text.Motor_SetSpeed,"ax",%progbits
+ 178              		.align	1
+ 179              		.global	Motor_SetSpeed
+ 180              		.syntax unified
+ 181              		.thumb
+ 182              		.thumb_func
+ 184              	Motor_SetSpeed:
+ 185              	.LVL13:
+ 186              	.LFB3:
+  61:modules/motor_driver.c **** 
+  62:modules/motor_driver.c **** void Motor_SetSpeed(int16_t left_per_mille, int16_t right_per_mille)
+  63:modules/motor_driver.c **** {
+ 187              		.loc 1 63 1 is_stmt 1 view -0
+ 188              		.cfi_startproc
+ 189              		@ args = 0, pretend = 0, frame = 0
+ 190              		@ frame_needed = 0, uses_anonymous_args = 0
+ 191              		.loc 1 63 1 is_stmt 0 view .LVU43
+ 192 0000 70B5     		push	{r4, r5, r6, lr}
+ 193              		.cfi_def_cfa_offset 16
+ 194              		.cfi_offset 4, -16
+ 195              		.cfi_offset 5, -12
+ 196              		.cfi_offset 6, -8
+ 197              		.cfi_offset 14, -4
+ 198 0002 0D46     		mov	r5, r1
+  64:modules/motor_driver.c ****     s_left_target = Motor_Clamp(left_per_mille);
+ 199              		.loc 1 64 5 is_stmt 1 view .LVU44
+ 200              		.loc 1 64 21 is_stmt 0 view .LVU45
+ 201 0004 FFF7FEFF 		bl	Motor_Clamp
+ 202              	.LVL14:
+ 203              		.loc 1 64 21 view .LVU46
+ 204 0008 0446     		mov	r4, r0
+ 205              		.loc 1 64 19 discriminator 1 view .LVU47
+ 206 000a 0F4B     		ldr	r3, .L19
+ 207 000c 1880     		strh	r0, [r3]	@ movhi
+  65:modules/motor_driver.c ****     s_right_target = Motor_Clamp(right_per_mille);
+ 208              		.loc 1 65 5 is_stmt 1 view .LVU48
+ 209              		.loc 1 65 22 is_stmt 0 view .LVU49
+ 210 000e 2846     		mov	r0, r5
+ 211 0010 FFF7FEFF 		bl	Motor_Clamp
+ 212              	.LVL15:
+ 213 0014 0546     		mov	r5, r0
+ 214              	.LVL16:
+ 215              		.loc 1 65 20 discriminator 1 view .LVU50
+ 216 0016 0D4B     		ldr	r3, .L19+4
+ 217 0018 1880     		strh	r0, [r3]	@ movhi
+  66:modules/motor_driver.c **** 
+  67:modules/motor_driver.c ****     /* 斜率限制：每调用一次只走一步 */
+  68:modules/motor_driver.c ****     s_left_output = Motor_RampToward(s_left_output, s_left_target);
+ 218              		.loc 1 68 5 is_stmt 1 view .LVU51
+ 219              		.loc 1 68 21 is_stmt 0 view .LVU52
+ 220 001a 0D4E     		ldr	r6, .L19+8
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s 			page 6
+
+
+ 221 001c 2146     		mov	r1, r4
+ 222 001e B6F90000 		ldrsh	r0, [r6]
+ 223 0022 FFF7FEFF 		bl	Motor_RampToward
+ 224              	.LVL17:
+ 225 0026 0446     		mov	r4, r0
+ 226              		.loc 1 68 19 discriminator 1 view .LVU53
+ 227 0028 3080     		strh	r0, [r6]	@ movhi
+  69:modules/motor_driver.c ****     s_right_output = Motor_RampToward(s_right_output, s_right_target);
+ 228              		.loc 1 69 5 is_stmt 1 view .LVU54
+ 229              		.loc 1 69 22 is_stmt 0 view .LVU55
+ 230 002a 0A4E     		ldr	r6, .L19+12
+ 231 002c 2946     		mov	r1, r5
+ 232 002e B6F90000 		ldrsh	r0, [r6]
+ 233 0032 FFF7FEFF 		bl	Motor_RampToward
+ 234              	.LVL18:
+ 235              		.loc 1 69 20 discriminator 1 view .LVU56
+ 236 0036 3080     		strh	r0, [r6]	@ movhi
+  70:modules/motor_driver.c **** 
+  71:modules/motor_driver.c ****     BSP_Motor_SetLeft(s_left_output);
+ 237              		.loc 1 71 5 is_stmt 1 view .LVU57
+ 238 0038 2046     		mov	r0, r4
+ 239 003a FFF7FEFF 		bl	BSP_Motor_SetLeft
+ 240              	.LVL19:
+  72:modules/motor_driver.c ****     BSP_Motor_SetRight(s_right_output);
+ 241              		.loc 1 72 5 view .LVU58
+ 242 003e B6F90000 		ldrsh	r0, [r6]
+ 243 0042 FFF7FEFF 		bl	BSP_Motor_SetRight
+ 244              	.LVL20:
+  73:modules/motor_driver.c **** }
+ 245              		.loc 1 73 1 is_stmt 0 view .LVU59
+ 246 0046 70BD     		pop	{r4, r5, r6, pc}
+ 247              	.L20:
+ 248              		.align	2
+ 249              	.L19:
+ 250 0048 00000000 		.word	s_left_target
+ 251 004c 00000000 		.word	s_right_target
+ 252 0050 00000000 		.word	s_left_output
+ 253 0054 00000000 		.word	s_right_output
+ 254              		.cfi_endproc
+ 255              	.LFE3:
+ 257              		.section	.text.Motor_Stop,"ax",%progbits
+ 258              		.align	1
+ 259              		.global	Motor_Stop
+ 260              		.syntax unified
+ 261              		.thumb
+ 262              		.thumb_func
+ 264              	Motor_Stop:
+ 265              	.LFB4:
+  74:modules/motor_driver.c **** 
+  75:modules/motor_driver.c **** void Motor_Stop(void)
+  76:modules/motor_driver.c **** {
+ 266              		.loc 1 76 1 is_stmt 1 view -0
+ 267              		.cfi_startproc
+ 268              		@ args = 0, pretend = 0, frame = 0
+ 269              		@ frame_needed = 0, uses_anonymous_args = 0
+ 270 0000 08B5     		push	{r3, lr}
+ 271              		.cfi_def_cfa_offset 8
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s 			page 7
+
+
+ 272              		.cfi_offset 3, -8
+ 273              		.cfi_offset 14, -4
+  77:modules/motor_driver.c ****     /* 安全路径不走斜率：直接清零并关断 H 桥 */
+  78:modules/motor_driver.c ****     s_left_target = 0;
+ 274              		.loc 1 78 5 view .LVU61
+ 275              		.loc 1 78 19 is_stmt 0 view .LVU62
+ 276 0002 0023     		movs	r3, #0
+ 277 0004 054A     		ldr	r2, .L23
+ 278 0006 1380     		strh	r3, [r2]	@ movhi
+  79:modules/motor_driver.c ****     s_right_target = 0;
+ 279              		.loc 1 79 5 is_stmt 1 view .LVU63
+ 280              		.loc 1 79 20 is_stmt 0 view .LVU64
+ 281 0008 054A     		ldr	r2, .L23+4
+ 282 000a 1380     		strh	r3, [r2]	@ movhi
+  80:modules/motor_driver.c ****     s_left_output = 0;
+ 283              		.loc 1 80 5 is_stmt 1 view .LVU65
+ 284              		.loc 1 80 19 is_stmt 0 view .LVU66
+ 285 000c 054A     		ldr	r2, .L23+8
+ 286 000e 1380     		strh	r3, [r2]	@ movhi
+  81:modules/motor_driver.c ****     s_right_output = 0;
+ 287              		.loc 1 81 5 is_stmt 1 view .LVU67
+ 288              		.loc 1 81 20 is_stmt 0 view .LVU68
+ 289 0010 054A     		ldr	r2, .L23+12
+ 290 0012 1380     		strh	r3, [r2]	@ movhi
+  82:modules/motor_driver.c **** 
+  83:modules/motor_driver.c ****     BSP_Motor_Stop();
+ 291              		.loc 1 83 5 is_stmt 1 view .LVU69
+ 292 0014 FFF7FEFF 		bl	BSP_Motor_Stop
+ 293              	.LVL21:
+  84:modules/motor_driver.c **** }
+ 294              		.loc 1 84 1 is_stmt 0 view .LVU70
+ 295 0018 08BD     		pop	{r3, pc}
+ 296              	.L24:
+ 297 001a 00BF     		.align	2
+ 298              	.L23:
+ 299 001c 00000000 		.word	s_left_target
+ 300 0020 00000000 		.word	s_right_target
+ 301 0024 00000000 		.word	s_left_output
+ 302 0028 00000000 		.word	s_right_output
+ 303              		.cfi_endproc
+ 304              	.LFE4:
+ 306              		.section	.text.Motor_GetLeftOutput,"ax",%progbits
+ 307              		.align	1
+ 308              		.global	Motor_GetLeftOutput
+ 309              		.syntax unified
+ 310              		.thumb
+ 311              		.thumb_func
+ 313              	Motor_GetLeftOutput:
+ 314              	.LFB5:
+  85:modules/motor_driver.c **** 
+  86:modules/motor_driver.c **** int16_t Motor_GetLeftOutput(void)
+  87:modules/motor_driver.c **** {
+ 315              		.loc 1 87 1 is_stmt 1 view -0
+ 316              		.cfi_startproc
+ 317              		@ args = 0, pretend = 0, frame = 0
+ 318              		@ frame_needed = 0, uses_anonymous_args = 0
+ 319              		@ link register save eliminated.
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s 			page 8
+
+
+  88:modules/motor_driver.c ****     return s_left_output;
+ 320              		.loc 1 88 5 view .LVU72
+  89:modules/motor_driver.c **** }
+ 321              		.loc 1 89 1 is_stmt 0 view .LVU73
+ 322 0000 014B     		ldr	r3, .L26
+ 323 0002 B3F90000 		ldrsh	r0, [r3]
+ 324 0006 7047     		bx	lr
+ 325              	.L27:
+ 326              		.align	2
+ 327              	.L26:
+ 328 0008 00000000 		.word	s_left_output
+ 329              		.cfi_endproc
+ 330              	.LFE5:
+ 332              		.section	.text.Motor_GetRightOutput,"ax",%progbits
+ 333              		.align	1
+ 334              		.global	Motor_GetRightOutput
+ 335              		.syntax unified
+ 336              		.thumb
+ 337              		.thumb_func
+ 339              	Motor_GetRightOutput:
+ 340              	.LFB6:
+  90:modules/motor_driver.c **** 
+  91:modules/motor_driver.c **** int16_t Motor_GetRightOutput(void)
+  92:modules/motor_driver.c **** {
+ 341              		.loc 1 92 1 is_stmt 1 view -0
+ 342              		.cfi_startproc
+ 343              		@ args = 0, pretend = 0, frame = 0
+ 344              		@ frame_needed = 0, uses_anonymous_args = 0
+ 345              		@ link register save eliminated.
+  93:modules/motor_driver.c ****     return s_right_output;
+ 346              		.loc 1 93 5 view .LVU75
+  94:modules/motor_driver.c **** }
+ 347              		.loc 1 94 1 is_stmt 0 view .LVU76
+ 348 0000 014B     		ldr	r3, .L29
+ 349 0002 B3F90000 		ldrsh	r0, [r3]
+ 350 0006 7047     		bx	lr
+ 351              	.L30:
+ 352              		.align	2
+ 353              	.L29:
+ 354 0008 00000000 		.word	s_right_output
+ 355              		.cfi_endproc
+ 356              	.LFE6:
+ 358              		.section	.bss.s_right_output,"aw",%nobits
+ 359              		.align	1
+ 362              	s_right_output:
+ 363 0000 0000     		.space	2
+ 364              		.section	.bss.s_left_output,"aw",%nobits
+ 365              		.align	1
+ 368              	s_left_output:
+ 369 0000 0000     		.space	2
+ 370              		.section	.bss.s_right_target,"aw",%nobits
+ 371              		.align	1
+ 374              	s_right_target:
+ 375 0000 0000     		.space	2
+ 376              		.section	.bss.s_left_target,"aw",%nobits
+ 377              		.align	1
+ 380              	s_left_target:
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s 			page 9
+
+
+ 381 0000 0000     		.space	2
+ 382              		.text
+ 383              	.Letext0:
+ 384              		.file 2 "D:/Microsoft VS code/stm32tools/@xpack-dev-tools/arm-none-eabi-gcc/15.2.1-1.1.1/.content/
+ 385              		.file 3 "D:/Microsoft VS code/stm32tools/@xpack-dev-tools/arm-none-eabi-gcc/15.2.1-1.1.1/.content/
+ 386              		.file 4 "bsp/bsp_motor_pwm.h"
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s 			page 10
+
+
+DEFINED SYMBOLS
+                            *ABS*:00000000 motor_driver.c
+C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s:19     .text.Motor_Clamp:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s:24     .text.Motor_Clamp:00000000 Motor_Clamp
+C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s:57     .text.Motor_Clamp:00000018 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s:62     .text.Motor_RampToward:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s:67     .text.Motor_RampToward:00000000 Motor_RampToward
+C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s:129    .text.Motor_Init:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s:135    .text.Motor_Init:00000000 Motor_Init
+C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s:170    .text.Motor_Init:0000001c $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s:380    .bss.s_left_target:00000000 s_left_target
+C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s:374    .bss.s_right_target:00000000 s_right_target
+C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s:368    .bss.s_left_output:00000000 s_left_output
+C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s:362    .bss.s_right_output:00000000 s_right_output
+C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s:178    .text.Motor_SetSpeed:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s:184    .text.Motor_SetSpeed:00000000 Motor_SetSpeed
+C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s:250    .text.Motor_SetSpeed:00000048 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s:258    .text.Motor_Stop:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s:264    .text.Motor_Stop:00000000 Motor_Stop
+C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s:299    .text.Motor_Stop:0000001c $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s:307    .text.Motor_GetLeftOutput:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s:313    .text.Motor_GetLeftOutput:00000000 Motor_GetLeftOutput
+C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s:328    .text.Motor_GetLeftOutput:00000008 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s:333    .text.Motor_GetRightOutput:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s:339    .text.Motor_GetRightOutput:00000000 Motor_GetRightOutput
+C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s:354    .text.Motor_GetRightOutput:00000008 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s:359    .bss.s_right_output:00000000 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s:365    .bss.s_left_output:00000000 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s:371    .bss.s_right_target:00000000 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccPhrC0v.s:377    .bss.s_left_target:00000000 $d
+
+UNDEFINED SYMBOLS
+BSP_Motor_Init
+BSP_Motor_SetLeft
+BSP_Motor_SetRight
+BSP_Motor_Stop

@@ -1,0 +1,1066 @@
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s 			page 1
+
+
+   1              		.cpu cortex-m3
+   2              		.arch armv7-m
+   3              		.fpu softvfp
+   4              		.eabi_attribute 20, 1
+   5              		.eabi_attribute 21, 1
+   6              		.eabi_attribute 23, 3
+   7              		.eabi_attribute 24, 1
+   8              		.eabi_attribute 25, 1
+   9              		.eabi_attribute 26, 1
+  10              		.eabi_attribute 30, 1
+  11              		.eabi_attribute 34, 1
+  12              		.eabi_attribute 18, 4
+  13              		.file	"bsp_ultrasonic.c"
+  14              		.text
+  15              	.Ltext0:
+  16              		.cfi_sections	.debug_frame
+  17              		.file 1 "bsp/bsp_ultrasonic.c"
+  18              		.section	.text.BSP_Ultrasonic_SetEdge,"ax",%progbits
+  19              		.align	1
+  20              		.syntax unified
+  21              		.thumb
+  22              		.thumb_func
+  24              	BSP_Ultrasonic_SetEdge:
+  25              	.LVL0:
+  26              	.LFB30:
+   1:bsp/bsp_ultrasonic.c **** #include "bsp_ultrasonic.h"
+   2:bsp/bsp_ultrasonic.c **** 
+   3:bsp/bsp_ultrasonic.c **** #include "board_config.h"
+   4:bsp/bsp_ultrasonic.c **** #include "Delay.h"
+   5:bsp/bsp_ultrasonic.c **** 
+   6:bsp/bsp_ultrasonic.c **** /* ============================================================================
+   7:bsp/bsp_ultrasonic.c ****  * 实现说明
+   8:bsp/bsp_ultrasonic.c ****  *
+   9:bsp/bsp_ultrasonic.c ****  * 这套接法下 Echo 接在 PB15，而本板**没有空闲的定时器捕获通道**
+  10:bsp/bsp_ultrasonic.c ****  * （TIM2/TIM4 归编码器、TIM3 出 PWM、TIM1 的捕获脚 PA8~PA11 被循迹占用），
+  11:bsp/bsp_ultrasonic.c ****  * 所以测量方式改成：
+  12:bsp/bsp_ultrasonic.c ****  *   1) TIM1 配成 1 MHz 自由运行时基（不需要任何引脚），
+  13:bsp/bsp_ultrasonic.c ****  *      每 65536 us 溢出一次，溢出中断里累加高位；
+  14:bsp/bsp_ultrasonic.c ****  *   2) EXTI 线 15 配成**双边沿中断**：
+  15:bsp/bsp_ultrasonic.c ****  *      上升沿 -> 记下回波起点，把触发条件切成下降沿；
+  16:bsp/bsp_ultrasonic.c ****  *      下降沿 -> 算出脉宽，把触发条件切回上升沿。
+  17:bsp/bsp_ultrasonic.c ****  *
+  18:bsp/bsp_ultrasonic.c ****  * 为什么不用 GPIO 轮询：控制环 5 ms 一轮，1 ms 误差折合 17 cm。
+  19:bsp/bsp_ultrasonic.c ****  *
+  20:bsp/bsp_ultrasonic.c ****  * 为什么 EXTI 用寄存器写而不是 SPL：
+  21:bsp/bsp_ultrasonic.c ****  *   本工程 Drivers 里没有 stm32f10x_exti.c（只有 .h），
+  22:bsp/bsp_ultrasonic.c ****  *   而 BSP 层本来就是唯一允许直接碰寄存器的层，所以直接写 AFIO/EXTI。
+  23:bsp/bsp_ultrasonic.c ****  * ========================================================================== */
+  24:bsp/bsp_ultrasonic.c **** 
+  25:bsp/bsp_ultrasonic.c **** /* EXTI 线掩码 */
+  26:bsp/bsp_ultrasonic.c **** #define ULTRASONIC_EXTI_MASK    (1UL << BOARD_ULTRASONIC_ECHO_EXTI_LINE)
+  27:bsp/bsp_ultrasonic.c **** 
+  28:bsp/bsp_ultrasonic.c **** /* 捕获状态机 */
+  29:bsp/bsp_ultrasonic.c **** static volatile uint8_t  s_wait_rise = 1U;      /* 1 = 等上升沿，0 = 等下降沿 */
+  30:bsp/bsp_ultrasonic.c **** static volatile uint32_t s_rise_us = 0U;        /* 回波起点时刻，us */
+  31:bsp/bsp_ultrasonic.c **** static volatile uint16_t s_width_us = 0U;       /* 算好的脉宽，us */
+  32:bsp/bsp_ultrasonic.c **** static volatile uint8_t  s_have_echo = 0U;      /* 1 = 有新脉宽可取 */
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s 			page 2
+
+
+  33:bsp/bsp_ultrasonic.c **** 
+  34:bsp/bsp_ultrasonic.c **** /* TIM1 自由运行时基的高位（每 65536 us 加一次） */
+  35:bsp/bsp_ultrasonic.c **** static volatile uint32_t s_us_high = 0U;
+  36:bsp/bsp_ultrasonic.c **** 
+  37:bsp/bsp_ultrasonic.c **** /* ------------------------------------------------------------------------- */
+  38:bsp/bsp_ultrasonic.c **** /* 读当前时刻（us，32 位）
+  39:bsp/bsp_ultrasonic.c ****  *
+  40:bsp/bsp_ultrasonic.c ****  * 16 位计数器 + 高位组合，必须避免「读高位 -> 计数器溢出 -> 读计数器」
+  41:bsp/bsp_ultrasonic.c ****  * 这种撕裂。做法是读两遍高位，不一致就重读。 */
+  42:bsp/bsp_ultrasonic.c **** static uint32_t BSP_Ultrasonic_GetTimeUs(void)
+  43:bsp/bsp_ultrasonic.c **** {
+  44:bsp/bsp_ultrasonic.c ****     uint32_t high_first;
+  45:bsp/bsp_ultrasonic.c ****     uint32_t high_second;
+  46:bsp/bsp_ultrasonic.c ****     uint32_t counter;
+  47:bsp/bsp_ultrasonic.c **** 
+  48:bsp/bsp_ultrasonic.c ****     do {
+  49:bsp/bsp_ultrasonic.c ****         high_first = s_us_high;
+  50:bsp/bsp_ultrasonic.c ****         counter = (uint32_t)TIM_GetCounter(BOARD_ULTRASONIC_TIM);
+  51:bsp/bsp_ultrasonic.c ****         high_second = s_us_high;
+  52:bsp/bsp_ultrasonic.c ****     } while (high_first != high_second);
+  53:bsp/bsp_ultrasonic.c **** 
+  54:bsp/bsp_ultrasonic.c ****     return high_second + counter;
+  55:bsp/bsp_ultrasonic.c **** }
+  56:bsp/bsp_ultrasonic.c **** 
+  57:bsp/bsp_ultrasonic.c **** /* 切换 EXTI 触发边沿：rising != 0 用上升沿，否则下降沿 */
+  58:bsp/bsp_ultrasonic.c **** static void BSP_Ultrasonic_SetEdge(uint8_t rising)
+  59:bsp/bsp_ultrasonic.c **** {
+  27              		.loc 1 59 1 view -0
+  28              		.cfi_startproc
+  29              		@ args = 0, pretend = 0, frame = 0
+  30              		@ frame_needed = 0, uses_anonymous_args = 0
+  31              		@ link register save eliminated.
+  60:bsp/bsp_ultrasonic.c ****     if (rising != 0U) {
+  32              		.loc 1 60 5 view .LVU1
+  33              		.loc 1 60 8 is_stmt 0 view .LVU2
+  34 0000 48B1     		cbz	r0, .L2
+  61:bsp/bsp_ultrasonic.c ****         EXTI->RTSR |= ULTRASONIC_EXTI_MASK;
+  35              		.loc 1 61 9 is_stmt 1 view .LVU3
+  36              		.loc 1 61 13 is_stmt 0 view .LVU4
+  37 0002 0A4B     		ldr	r3, .L4
+  38 0004 9A68     		ldr	r2, [r3, #8]
+  39              		.loc 1 61 20 view .LVU5
+  40 0006 42F40042 		orr	r2, r2, #32768
+  41 000a 9A60     		str	r2, [r3, #8]
+  62:bsp/bsp_ultrasonic.c ****         EXTI->FTSR &= ~ULTRASONIC_EXTI_MASK;
+  42              		.loc 1 62 9 is_stmt 1 view .LVU6
+  43              		.loc 1 62 13 is_stmt 0 view .LVU7
+  44 000c DA68     		ldr	r2, [r3, #12]
+  45              		.loc 1 62 20 view .LVU8
+  46 000e 22F40042 		bic	r2, r2, #32768
+  47 0012 DA60     		str	r2, [r3, #12]
+  48 0014 7047     		bx	lr
+  49              	.L2:
+  63:bsp/bsp_ultrasonic.c ****     } else {
+  64:bsp/bsp_ultrasonic.c ****         EXTI->RTSR &= ~ULTRASONIC_EXTI_MASK;
+  50              		.loc 1 64 9 is_stmt 1 view .LVU9
+  51              		.loc 1 64 13 is_stmt 0 view .LVU10
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s 			page 3
+
+
+  52 0016 054B     		ldr	r3, .L4
+  53 0018 9A68     		ldr	r2, [r3, #8]
+  54              		.loc 1 64 20 view .LVU11
+  55 001a 22F40042 		bic	r2, r2, #32768
+  56 001e 9A60     		str	r2, [r3, #8]
+  65:bsp/bsp_ultrasonic.c ****         EXTI->FTSR |= ULTRASONIC_EXTI_MASK;
+  57              		.loc 1 65 9 is_stmt 1 view .LVU12
+  58              		.loc 1 65 13 is_stmt 0 view .LVU13
+  59 0020 DA68     		ldr	r2, [r3, #12]
+  60              		.loc 1 65 20 view .LVU14
+  61 0022 42F40042 		orr	r2, r2, #32768
+  62 0026 DA60     		str	r2, [r3, #12]
+  66:bsp/bsp_ultrasonic.c ****     }
+  67:bsp/bsp_ultrasonic.c **** }
+  63              		.loc 1 67 1 view .LVU15
+  64 0028 7047     		bx	lr
+  65              	.L5:
+  66 002a 00BF     		.align	2
+  67              	.L4:
+  68 002c 00040140 		.word	1073808384
+  69              		.cfi_endproc
+  70              	.LFE30:
+  72              		.section	.text.BSP_Ultrasonic_GetTimeUs,"ax",%progbits
+  73              		.align	1
+  74              		.syntax unified
+  75              		.thumb
+  76              		.thumb_func
+  78              	BSP_Ultrasonic_GetTimeUs:
+  79              	.LFB29:
+  43:bsp/bsp_ultrasonic.c ****     uint32_t high_first;
+  80              		.loc 1 43 1 is_stmt 1 view -0
+  81              		.cfi_startproc
+  82              		@ args = 0, pretend = 0, frame = 0
+  83              		@ frame_needed = 0, uses_anonymous_args = 0
+  84 0000 38B5     		push	{r3, r4, r5, lr}
+  85              		.cfi_def_cfa_offset 16
+  86              		.cfi_offset 3, -16
+  87              		.cfi_offset 4, -12
+  88              		.cfi_offset 5, -8
+  89              		.cfi_offset 14, -4
+  90              	.L7:
+  44:bsp/bsp_ultrasonic.c ****     uint32_t high_second;
+  91              		.loc 1 44 5 view .LVU17
+  45:bsp/bsp_ultrasonic.c ****     uint32_t counter;
+  92              		.loc 1 45 5 view .LVU18
+  46:bsp/bsp_ultrasonic.c **** 
+  93              		.loc 1 46 5 view .LVU19
+  48:bsp/bsp_ultrasonic.c ****         high_first = s_us_high;
+  94              		.loc 1 48 5 view .LVU20
+  49:bsp/bsp_ultrasonic.c ****         counter = (uint32_t)TIM_GetCounter(BOARD_ULTRASONIC_TIM);
+  95              		.loc 1 49 9 view .LVU21
+  49:bsp/bsp_ultrasonic.c ****         counter = (uint32_t)TIM_GetCounter(BOARD_ULTRASONIC_TIM);
+  96              		.loc 1 49 20 is_stmt 0 view .LVU22
+  97 0002 054C     		ldr	r4, .L9
+  98 0004 2568     		ldr	r5, [r4]
+  99              	.LVL1:
+  50:bsp/bsp_ultrasonic.c ****         high_second = s_us_high;
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s 			page 4
+
+
+ 100              		.loc 1 50 9 is_stmt 1 view .LVU23
+  50:bsp/bsp_ultrasonic.c ****         high_second = s_us_high;
+ 101              		.loc 1 50 29 is_stmt 0 view .LVU24
+ 102 0006 0548     		ldr	r0, .L9+4
+ 103 0008 FFF7FEFF 		bl	TIM_GetCounter
+ 104              	.LVL2:
+  51:bsp/bsp_ultrasonic.c ****     } while (high_first != high_second);
+ 105              		.loc 1 51 9 is_stmt 1 view .LVU25
+  51:bsp/bsp_ultrasonic.c ****     } while (high_first != high_second);
+ 106              		.loc 1 51 21 is_stmt 0 view .LVU26
+ 107 000c 2368     		ldr	r3, [r4]
+ 108              	.LVL3:
+  52:bsp/bsp_ultrasonic.c **** 
+ 109              		.loc 1 52 25 is_stmt 1 discriminator 1 view .LVU27
+ 110 000e 9D42     		cmp	r5, r3
+ 111 0010 F7D1     		bne	.L7
+  54:bsp/bsp_ultrasonic.c **** }
+ 112              		.loc 1 54 5 view .LVU28
+  55:bsp/bsp_ultrasonic.c **** 
+ 113              		.loc 1 55 1 is_stmt 0 view .LVU29
+ 114 0012 1844     		add	r0, r0, r3
+ 115              	.LVL4:
+  55:bsp/bsp_ultrasonic.c **** 
+ 116              		.loc 1 55 1 view .LVU30
+ 117 0014 38BD     		pop	{r3, r4, r5, pc}
+ 118              	.LVL5:
+ 119              	.L10:
+  55:bsp/bsp_ultrasonic.c **** 
+ 120              		.loc 1 55 1 view .LVU31
+ 121 0016 00BF     		.align	2
+ 122              	.L9:
+ 123 0018 00000000 		.word	s_us_high
+ 124 001c 002C0140 		.word	1073818624
+ 125              		.cfi_endproc
+ 126              	.LFE29:
+ 128              		.section	.text.BSP_Ultrasonic_Init,"ax",%progbits
+ 129              		.align	1
+ 130              		.global	BSP_Ultrasonic_Init
+ 131              		.syntax unified
+ 132              		.thumb
+ 133              		.thumb_func
+ 135              	BSP_Ultrasonic_Init:
+ 136              	.LFB31:
+  68:bsp/bsp_ultrasonic.c **** 
+  69:bsp/bsp_ultrasonic.c **** /* ------------------------------------------------------------------------- */
+  70:bsp/bsp_ultrasonic.c **** void BSP_Ultrasonic_Init(void)
+  71:bsp/bsp_ultrasonic.c **** {
+ 137              		.loc 1 71 1 is_stmt 1 view -0
+ 138              		.cfi_startproc
+ 139              		@ args = 0, pretend = 0, frame = 24
+ 140              		@ frame_needed = 0, uses_anonymous_args = 0
+ 141 0000 2DE9F047 		push	{r4, r5, r6, r7, r8, r9, r10, lr}
+ 142              		.cfi_def_cfa_offset 32
+ 143              		.cfi_offset 4, -32
+ 144              		.cfi_offset 5, -28
+ 145              		.cfi_offset 6, -24
+ 146              		.cfi_offset 7, -20
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s 			page 5
+
+
+ 147              		.cfi_offset 8, -16
+ 148              		.cfi_offset 9, -12
+ 149              		.cfi_offset 10, -8
+ 150              		.cfi_offset 14, -4
+ 151 0004 86B0     		sub	sp, sp, #24
+ 152              		.cfi_def_cfa_offset 56
+  72:bsp/bsp_ultrasonic.c ****     GPIO_InitTypeDef gpio_init;
+ 153              		.loc 1 72 5 view .LVU33
+  73:bsp/bsp_ultrasonic.c ****     TIM_TimeBaseInitTypeDef time_base;
+ 154              		.loc 1 73 5 view .LVU34
+  74:bsp/bsp_ultrasonic.c ****     NVIC_InitTypeDef nvic_init;
+ 155              		.loc 1 74 5 view .LVU35
+  75:bsp/bsp_ultrasonic.c ****     uint32_t exticr_index;
+ 156              		.loc 1 75 5 view .LVU36
+  76:bsp/bsp_ultrasonic.c ****     uint32_t exticr_shift;
+ 157              		.loc 1 76 5 view .LVU37
+  77:bsp/bsp_ultrasonic.c **** 
+  78:bsp/bsp_ultrasonic.c ****     RCC_APB2PeriphClockCmd(BOARD_ULTRASONIC_TRIG_GPIO_CLK, ENABLE);
+ 158              		.loc 1 78 5 view .LVU38
+ 159 0006 0121     		movs	r1, #1
+ 160 0008 0420     		movs	r0, #4
+ 161 000a FFF7FEFF 		bl	RCC_APB2PeriphClockCmd
+ 162              	.LVL6:
+  79:bsp/bsp_ultrasonic.c ****     RCC_APB2PeriphClockCmd(BOARD_ULTRASONIC_ECHO_GPIO_CLK, ENABLE);
+ 163              		.loc 1 79 5 view .LVU39
+ 164 000e 0121     		movs	r1, #1
+ 165 0010 0820     		movs	r0, #8
+ 166 0012 FFF7FEFF 		bl	RCC_APB2PeriphClockCmd
+ 167              	.LVL7:
+  80:bsp/bsp_ultrasonic.c ****     RCC_APB2PeriphClockCmd(BOARD_ULTRASONIC_TIM_CLK, ENABLE);
+ 168              		.loc 1 80 5 view .LVU40
+ 169 0016 0121     		movs	r1, #1
+ 170 0018 4FF40060 		mov	r0, #2048
+ 171 001c FFF7FEFF 		bl	RCC_APB2PeriphClockCmd
+ 172              	.LVL8:
+  81:bsp/bsp_ultrasonic.c ****     RCC_APB2PeriphClockCmd(RCC_APB2Periph_AFIO, ENABLE);    /* EXTI 挂靠需要 */
+ 173              		.loc 1 81 5 view .LVU41
+ 174 0020 0121     		movs	r1, #1
+ 175 0022 0846     		mov	r0, r1
+ 176 0024 FFF7FEFF 		bl	RCC_APB2PeriphClockCmd
+ 177              	.LVL9:
+  82:bsp/bsp_ultrasonic.c **** 
+  83:bsp/bsp_ultrasonic.c ****     /* ---- Trig：推挽输出，初始低 ---- */
+  84:bsp/bsp_ultrasonic.c ****     gpio_init.GPIO_Pin = BOARD_ULTRASONIC_TRIG_PIN;
+ 178              		.loc 1 84 5 view .LVU42
+ 179              		.loc 1 84 24 is_stmt 0 view .LVU43
+ 180 0028 1026     		movs	r6, #16
+ 181 002a ADF81460 		strh	r6, [sp, #20]	@ movhi
+  85:bsp/bsp_ultrasonic.c ****     gpio_init.GPIO_Mode = GPIO_Mode_Out_PP;
+ 182              		.loc 1 85 5 is_stmt 1 view .LVU44
+ 183              		.loc 1 85 25 is_stmt 0 view .LVU45
+ 184 002e 4FF01003 		mov	r3, #16	@ movhi
+ 185 0032 8DF81730 		strb	r3, [sp, #23]
+  86:bsp/bsp_ultrasonic.c ****     gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
+ 186              		.loc 1 86 5 is_stmt 1 view .LVU46
+ 187              		.loc 1 86 26 is_stmt 0 view .LVU47
+ 188 0036 0323     		movs	r3, #3
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s 			page 6
+
+
+ 189 0038 8DF81630 		strb	r3, [sp, #22]
+  87:bsp/bsp_ultrasonic.c ****     GPIO_Init(BOARD_ULTRASONIC_TRIG_GPIO, &gpio_init);
+ 190              		.loc 1 87 5 is_stmt 1 view .LVU48
+ 191 003c 05AC     		add	r4, sp, #20
+ 192 003e 3C4D     		ldr	r5, .L13
+ 193 0040 2146     		mov	r1, r4
+ 194 0042 2846     		mov	r0, r5
+ 195 0044 FFF7FEFF 		bl	GPIO_Init
+ 196              	.LVL10:
+  88:bsp/bsp_ultrasonic.c ****     GPIO_ResetBits(BOARD_ULTRASONIC_TRIG_GPIO, BOARD_ULTRASONIC_TRIG_PIN);
+ 197              		.loc 1 88 5 view .LVU49
+ 198 0048 3146     		mov	r1, r6
+ 199 004a 2846     		mov	r0, r5
+ 200 004c FFF7FEFF 		bl	GPIO_ResetBits
+ 201              	.LVL11:
+  89:bsp/bsp_ultrasonic.c **** 
+  90:bsp/bsp_ultrasonic.c ****     /* ---- Echo：浮空输入（模块推挽输出主动驱动） ---- */
+  91:bsp/bsp_ultrasonic.c ****     gpio_init.GPIO_Pin = BOARD_ULTRASONIC_ECHO_PIN;
+ 202              		.loc 1 91 5 view .LVU50
+ 203              		.loc 1 91 24 is_stmt 0 view .LVU51
+ 204 0050 4FF40048 		mov	r8, #32768
+ 205 0054 ADF81480 		strh	r8, [sp, #20]	@ movhi
+  92:bsp/bsp_ultrasonic.c ****     gpio_init.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+ 206              		.loc 1 92 5 is_stmt 1 view .LVU52
+ 207              		.loc 1 92 25 is_stmt 0 view .LVU53
+ 208 0058 0423     		movs	r3, #4
+ 209 005a 8DF81730 		strb	r3, [sp, #23]
+  93:bsp/bsp_ultrasonic.c ****     GPIO_Init(BOARD_ULTRASONIC_ECHO_GPIO, &gpio_init);
+ 210              		.loc 1 93 5 is_stmt 1 view .LVU54
+ 211 005e 2146     		mov	r1, r4
+ 212 0060 3448     		ldr	r0, .L13+4
+ 213 0062 FFF7FEFF 		bl	GPIO_Init
+ 214              	.LVL12:
+  94:bsp/bsp_ultrasonic.c **** 
+  95:bsp/bsp_ultrasonic.c ****     /* ---- TIM1：1 MHz 自由运行，只做时基 ---- */
+  96:bsp/bsp_ultrasonic.c ****     TIM_TimeBaseStructInit(&time_base);
+ 215              		.loc 1 96 5 view .LVU55
+ 216 0066 02AE     		add	r6, sp, #8
+ 217 0068 3046     		mov	r0, r6
+ 218 006a FFF7FEFF 		bl	TIM_TimeBaseStructInit
+ 219              	.LVL13:
+  97:bsp/bsp_ultrasonic.c ****     time_base.TIM_ClockDivision = TIM_CKD_DIV1;
+ 220              		.loc 1 97 5 view .LVU56
+ 221              		.loc 1 97 33 is_stmt 0 view .LVU57
+ 222 006e 0025     		movs	r5, #0
+ 223 0070 4FF00009 		mov	r9, #0	@ movhi
+ 224 0074 ADF80E50 		strh	r5, [sp, #14]	@ movhi
+  98:bsp/bsp_ultrasonic.c ****     time_base.TIM_CounterMode = TIM_CounterMode_Up;
+ 225              		.loc 1 98 5 is_stmt 1 view .LVU58
+ 226              		.loc 1 98 31 is_stmt 0 view .LVU59
+ 227 0078 ADF80A50 		strh	r5, [sp, #10]	@ movhi
+  99:bsp/bsp_ultrasonic.c ****     time_base.TIM_Prescaler = BOARD_ULTRASONIC_TIM_PRESCALER;
+ 228              		.loc 1 99 5 is_stmt 1 view .LVU60
+ 229              		.loc 1 99 29 is_stmt 0 view .LVU61
+ 230 007c 4723     		movs	r3, #71
+ 231 007e ADF80830 		strh	r3, [sp, #8]	@ movhi
+ 100:bsp/bsp_ultrasonic.c ****     time_base.TIM_Period = BOARD_ULTRASONIC_TIM_PERIOD;
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s 			page 7
+
+
+ 232              		.loc 1 100 5 is_stmt 1 view .LVU62
+ 233              		.loc 1 100 26 is_stmt 0 view .LVU63
+ 234 0082 4FF6FF73 		movw	r3, #65535
+ 235 0086 ADF80C30 		strh	r3, [sp, #12]	@ movhi
+ 101:bsp/bsp_ultrasonic.c ****     time_base.TIM_RepetitionCounter = 0U;
+ 236              		.loc 1 101 5 is_stmt 1 view .LVU64
+ 237              		.loc 1 101 37 is_stmt 0 view .LVU65
+ 238 008a 8DF81090 		strb	r9, [sp, #16]
+ 102:bsp/bsp_ultrasonic.c ****     TIM_TimeBaseInit(BOARD_ULTRASONIC_TIM, &time_base);
+ 239              		.loc 1 102 5 is_stmt 1 view .LVU66
+ 240 008e 2A4C     		ldr	r4, .L13+8
+ 241 0090 3146     		mov	r1, r6
+ 242 0092 2046     		mov	r0, r4
+ 243 0094 FFF7FEFF 		bl	TIM_TimeBaseInit
+ 244              	.LVL14:
+ 103:bsp/bsp_ultrasonic.c **** 
+ 104:bsp/bsp_ultrasonic.c ****     s_us_high = 0U;
+ 245              		.loc 1 104 5 view .LVU67
+ 246              		.loc 1 104 15 is_stmt 0 view .LVU68
+ 247 0098 284B     		ldr	r3, .L13+12
+ 248 009a 1D60     		str	r5, [r3]
+ 105:bsp/bsp_ultrasonic.c ****     TIM_SetCounter(BOARD_ULTRASONIC_TIM, 0U);
+ 249              		.loc 1 105 5 is_stmt 1 view .LVU69
+ 250 009c 2946     		mov	r1, r5
+ 251 009e 2046     		mov	r0, r4
+ 252 00a0 FFF7FEFF 		bl	TIM_SetCounter
+ 253              	.LVL15:
+ 106:bsp/bsp_ultrasonic.c ****     TIM_ClearITPendingBit(BOARD_ULTRASONIC_TIM, TIM_IT_Update);
+ 254              		.loc 1 106 5 view .LVU70
+ 255 00a4 0121     		movs	r1, #1
+ 256 00a6 2046     		mov	r0, r4
+ 257 00a8 FFF7FEFF 		bl	TIM_ClearITPendingBit
+ 258              	.LVL16:
+ 107:bsp/bsp_ultrasonic.c ****     TIM_ITConfig(BOARD_ULTRASONIC_TIM, TIM_IT_Update, ENABLE);
+ 259              		.loc 1 107 5 view .LVU71
+ 260 00ac 0122     		movs	r2, #1
+ 261 00ae 1146     		mov	r1, r2
+ 262 00b0 2046     		mov	r0, r4
+ 263 00b2 FFF7FEFF 		bl	TIM_ITConfig
+ 264              	.LVL17:
+ 108:bsp/bsp_ultrasonic.c ****     TIM_Cmd(BOARD_ULTRASONIC_TIM, ENABLE);
+ 265              		.loc 1 108 5 view .LVU72
+ 266 00b6 0121     		movs	r1, #1
+ 267 00b8 2046     		mov	r0, r4
+ 268 00ba FFF7FEFF 		bl	TIM_Cmd
+ 269              	.LVL18:
+ 109:bsp/bsp_ultrasonic.c **** 
+ 110:bsp/bsp_ultrasonic.c ****     nvic_init.NVIC_IRQChannel = BOARD_ULTRASONIC_TIM_IRQn;
+ 270              		.loc 1 110 5 view .LVU73
+ 271              		.loc 1 110 31 is_stmt 0 view .LVU74
+ 272 00be 1923     		movs	r3, #25
+ 273 00c0 8DF80430 		strb	r3, [sp, #4]
+ 111:bsp/bsp_ultrasonic.c ****     nvic_init.NVIC_IRQChannelPreemptionPriority = 2U;
+ 274              		.loc 1 111 5 is_stmt 1 view .LVU75
+ 275              		.loc 1 111 49 is_stmt 0 view .LVU76
+ 276 00c4 4FF0020A 		mov	r10, #2
+ 277 00c8 8DF805A0 		strb	r10, [sp, #5]
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s 			page 8
+
+
+ 112:bsp/bsp_ultrasonic.c ****     nvic_init.NVIC_IRQChannelSubPriority = 1U;
+ 278              		.loc 1 112 5 is_stmt 1 view .LVU77
+ 279              		.loc 1 112 42 is_stmt 0 view .LVU78
+ 280 00cc 0124     		movs	r4, #1
+ 281 00ce 8DF80640 		strb	r4, [sp, #6]
+ 113:bsp/bsp_ultrasonic.c ****     nvic_init.NVIC_IRQChannelCmd = ENABLE;
+ 282              		.loc 1 113 5 is_stmt 1 view .LVU79
+ 283              		.loc 1 113 34 is_stmt 0 view .LVU80
+ 284 00d2 8DF80740 		strb	r4, [sp, #7]
+ 114:bsp/bsp_ultrasonic.c ****     NVIC_Init(&nvic_init);
+ 285              		.loc 1 114 5 is_stmt 1 view .LVU81
+ 286 00d6 01AF     		add	r7, sp, #4
+ 287 00d8 3846     		mov	r0, r7
+ 288 00da FFF7FEFF 		bl	NVIC_Init
+ 289              	.LVL19:
+ 115:bsp/bsp_ultrasonic.c **** 
+ 116:bsp/bsp_ultrasonic.c ****     /* ---- EXTI：把 12 号线挂到 PA，双边沿（先上升） ---- */
+ 117:bsp/bsp_ultrasonic.c ****     exticr_index = BOARD_ULTRASONIC_ECHO_EXTI_LINE / 4U;
+ 290              		.loc 1 117 5 view .LVU82
+ 118:bsp/bsp_ultrasonic.c ****     exticr_shift = (BOARD_ULTRASONIC_ECHO_EXTI_LINE % 4U) * 4U;
+ 291              		.loc 1 118 5 view .LVU83
+ 119:bsp/bsp_ultrasonic.c **** 
+ 120:bsp/bsp_ultrasonic.c ****     AFIO->EXTICR[exticr_index] &= ~(0xFUL << exticr_shift);
+ 292              		.loc 1 120 5 view .LVU84
+ 293              		.loc 1 120 17 is_stmt 0 view .LVU85
+ 294 00de 184B     		ldr	r3, .L13+16
+ 295 00e0 5A69     		ldr	r2, [r3, #20]
+ 296              		.loc 1 120 32 view .LVU86
+ 297 00e2 22F47042 		bic	r2, r2, #61440
+ 298 00e6 5A61     		str	r2, [r3, #20]
+ 121:bsp/bsp_ultrasonic.c ****     AFIO->EXTICR[exticr_index] |=
+ 299              		.loc 1 121 5 is_stmt 1 view .LVU87
+ 300              		.loc 1 121 17 is_stmt 0 view .LVU88
+ 301 00e8 5A69     		ldr	r2, [r3, #20]
+ 302              		.loc 1 121 32 view .LVU89
+ 303 00ea 42F48052 		orr	r2, r2, #4096
+ 304 00ee 5A61     		str	r2, [r3, #20]
+ 122:bsp/bsp_ultrasonic.c ****         ((uint32_t)BOARD_ULTRASONIC_ECHO_EXTI_PORT_SRC << exticr_shift);
+ 123:bsp/bsp_ultrasonic.c **** 
+ 124:bsp/bsp_ultrasonic.c ****     EXTI->IMR |= ULTRASONIC_EXTI_MASK;      /* 解除屏蔽 */
+ 305              		.loc 1 124 5 is_stmt 1 view .LVU90
+ 306              		.loc 1 124 9 is_stmt 0 view .LVU91
+ 307 00f0 144E     		ldr	r6, .L13+20
+ 308 00f2 3368     		ldr	r3, [r6]
+ 309              		.loc 1 124 15 view .LVU92
+ 310 00f4 43EA0803 		orr	r3, r3, r8
+ 311 00f8 3360     		str	r3, [r6]
+ 125:bsp/bsp_ultrasonic.c ****     s_wait_rise = 1U;
+ 312              		.loc 1 125 5 is_stmt 1 view .LVU93
+ 313              		.loc 1 125 17 is_stmt 0 view .LVU94
+ 314 00fa 134B     		ldr	r3, .L13+24
+ 315 00fc 1C70     		strb	r4, [r3]
+ 126:bsp/bsp_ultrasonic.c ****     s_have_echo = 0U;
+ 316              		.loc 1 126 5 is_stmt 1 view .LVU95
+ 317              		.loc 1 126 17 is_stmt 0 view .LVU96
+ 318 00fe 134B     		ldr	r3, .L13+28
+ 319 0100 83F80090 		strb	r9, [r3]
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s 			page 9
+
+
+ 127:bsp/bsp_ultrasonic.c ****     s_width_us = 0U;
+ 320              		.loc 1 127 5 is_stmt 1 view .LVU97
+ 321              		.loc 1 127 16 is_stmt 0 view .LVU98
+ 322 0104 124B     		ldr	r3, .L13+32
+ 323 0106 1D80     		strh	r5, [r3]	@ movhi
+ 128:bsp/bsp_ultrasonic.c ****     BSP_Ultrasonic_SetEdge(1U);
+ 324              		.loc 1 128 5 is_stmt 1 view .LVU99
+ 325 0108 2046     		mov	r0, r4
+ 326 010a FFF7FEFF 		bl	BSP_Ultrasonic_SetEdge
+ 327              	.LVL20:
+ 129:bsp/bsp_ultrasonic.c **** 
+ 130:bsp/bsp_ultrasonic.c ****     EXTI->PR = ULTRASONIC_EXTI_MASK;        /* 写 1 清挂起 */
+ 328              		.loc 1 130 5 view .LVU100
+ 329              		.loc 1 130 14 is_stmt 0 view .LVU101
+ 330 010e C6F81480 		str	r8, [r6, #20]
+ 131:bsp/bsp_ultrasonic.c **** 
+ 132:bsp/bsp_ultrasonic.c ****     nvic_init.NVIC_IRQChannel = BOARD_ULTRASONIC_ECHO_IRQn;
+ 331              		.loc 1 132 5 is_stmt 1 view .LVU102
+ 332              		.loc 1 132 31 is_stmt 0 view .LVU103
+ 333 0112 2823     		movs	r3, #40
+ 334 0114 8DF80430 		strb	r3, [sp, #4]
+ 133:bsp/bsp_ultrasonic.c ****     nvic_init.NVIC_IRQChannelPreemptionPriority = 1U;
+ 335              		.loc 1 133 5 is_stmt 1 view .LVU104
+ 336              		.loc 1 133 49 is_stmt 0 view .LVU105
+ 337 0118 8DF80540 		strb	r4, [sp, #5]
+ 134:bsp/bsp_ultrasonic.c ****     nvic_init.NVIC_IRQChannelSubPriority = 2U;
+ 338              		.loc 1 134 5 is_stmt 1 view .LVU106
+ 339              		.loc 1 134 42 is_stmt 0 view .LVU107
+ 340 011c 8DF806A0 		strb	r10, [sp, #6]
+ 135:bsp/bsp_ultrasonic.c ****     nvic_init.NVIC_IRQChannelCmd = ENABLE;
+ 341              		.loc 1 135 5 is_stmt 1 view .LVU108
+ 342              		.loc 1 135 34 is_stmt 0 view .LVU109
+ 343 0120 8DF80740 		strb	r4, [sp, #7]
+ 136:bsp/bsp_ultrasonic.c ****     NVIC_Init(&nvic_init);
+ 344              		.loc 1 136 5 is_stmt 1 view .LVU110
+ 345 0124 3846     		mov	r0, r7
+ 346 0126 FFF7FEFF 		bl	NVIC_Init
+ 347              	.LVL21:
+ 137:bsp/bsp_ultrasonic.c **** }
+ 348              		.loc 1 137 1 is_stmt 0 view .LVU111
+ 349 012a 06B0     		add	sp, sp, #24
+ 350              		.cfi_def_cfa_offset 32
+ 351              		@ sp needed
+ 352 012c BDE8F087 		pop	{r4, r5, r6, r7, r8, r9, r10, pc}
+ 353              	.L14:
+ 354              		.align	2
+ 355              	.L13:
+ 356 0130 00080140 		.word	1073809408
+ 357 0134 000C0140 		.word	1073810432
+ 358 0138 002C0140 		.word	1073818624
+ 359 013c 00000000 		.word	s_us_high
+ 360 0140 00000140 		.word	1073807360
+ 361 0144 00040140 		.word	1073808384
+ 362 0148 00000000 		.word	s_wait_rise
+ 363 014c 00000000 		.word	s_have_echo
+ 364 0150 00000000 		.word	s_width_us
+ 365              		.cfi_endproc
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s 			page 10
+
+
+ 366              	.LFE31:
+ 368              		.section	.text.BSP_Ultrasonic_TakeEchoUs,"ax",%progbits
+ 369              		.align	1
+ 370              		.global	BSP_Ultrasonic_TakeEchoUs
+ 371              		.syntax unified
+ 372              		.thumb
+ 373              		.thumb_func
+ 375              	BSP_Ultrasonic_TakeEchoUs:
+ 376              	.LVL22:
+ 377              	.LFB33:
+ 138:bsp/bsp_ultrasonic.c **** 
+ 139:bsp/bsp_ultrasonic.c **** void BSP_Ultrasonic_Trigger(void)
+ 140:bsp/bsp_ultrasonic.c **** {
+ 141:bsp/bsp_ultrasonic.c ****     /* 上一次结果作废，避免上层拿到过期脉宽 */
+ 142:bsp/bsp_ultrasonic.c ****     s_have_echo = 0U;
+ 143:bsp/bsp_ultrasonic.c **** 
+ 144:bsp/bsp_ultrasonic.c ****     /* 上一次没捕到下降沿时先把状态复位，否则这次接不上 */
+ 145:bsp/bsp_ultrasonic.c ****     if (s_wait_rise == 0U) {
+ 146:bsp/bsp_ultrasonic.c ****         BSP_Ultrasonic_ResetEcho();
+ 147:bsp/bsp_ultrasonic.c ****     }
+ 148:bsp/bsp_ultrasonic.c **** 
+ 149:bsp/bsp_ultrasonic.c ****     GPIO_SetBits(BOARD_ULTRASONIC_TRIG_GPIO, BOARD_ULTRASONIC_TRIG_PIN);
+ 150:bsp/bsp_ultrasonic.c ****     Delay_us(BOARD_ULTRASONIC_TRIG_PULSE_US);
+ 151:bsp/bsp_ultrasonic.c ****     GPIO_ResetBits(BOARD_ULTRASONIC_TRIG_GPIO, BOARD_ULTRASONIC_TRIG_PIN);
+ 152:bsp/bsp_ultrasonic.c **** }
+ 153:bsp/bsp_ultrasonic.c **** 
+ 154:bsp/bsp_ultrasonic.c **** uint8_t BSP_Ultrasonic_TakeEchoUs(uint16_t *echo_us)
+ 155:bsp/bsp_ultrasonic.c **** {
+ 378              		.loc 1 155 1 is_stmt 1 view -0
+ 379              		.cfi_startproc
+ 380              		@ args = 0, pretend = 0, frame = 0
+ 381              		@ frame_needed = 0, uses_anonymous_args = 0
+ 382              		@ link register save eliminated.
+ 383              		.loc 1 155 1 is_stmt 0 view .LVU113
+ 384 0000 0346     		mov	r3, r0
+ 156:bsp/bsp_ultrasonic.c ****     if (s_have_echo == 0U) {
+ 385              		.loc 1 156 5 is_stmt 1 view .LVU114
+ 386              		.loc 1 156 21 is_stmt 0 view .LVU115
+ 387 0002 074A     		ldr	r2, .L18
+ 388 0004 1278     		ldrb	r2, [r2]	@ zero_extendqisi2
+ 389              		.loc 1 156 8 view .LVU116
+ 390 0006 02F0FF00 		and	r0, r2, #255
+ 391              	.LVL23:
+ 392              		.loc 1 156 8 view .LVU117
+ 393 000a 3AB1     		cbz	r2, .L16
+ 157:bsp/bsp_ultrasonic.c ****         return 0U;
+ 158:bsp/bsp_ultrasonic.c ****     }
+ 159:bsp/bsp_ultrasonic.c **** 
+ 160:bsp/bsp_ultrasonic.c ****     if (echo_us != 0) {
+ 394              		.loc 1 160 5 is_stmt 1 view .LVU118
+ 395              		.loc 1 160 8 is_stmt 0 view .LVU119
+ 396 000c 13B1     		cbz	r3, .L17
+ 161:bsp/bsp_ultrasonic.c ****         *echo_us = s_width_us;
+ 397              		.loc 1 161 9 is_stmt 1 view .LVU120
+ 398              		.loc 1 161 18 is_stmt 0 view .LVU121
+ 399 000e 054A     		ldr	r2, .L18+4
+ 400 0010 1288     		ldrh	r2, [r2]
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s 			page 11
+
+
+ 401 0012 1A80     		strh	r2, [r3]	@ movhi
+ 402              	.L17:
+ 162:bsp/bsp_ultrasonic.c ****     }
+ 163:bsp/bsp_ultrasonic.c **** 
+ 164:bsp/bsp_ultrasonic.c ****     s_have_echo = 0U;
+ 403              		.loc 1 164 5 is_stmt 1 view .LVU122
+ 404              		.loc 1 164 17 is_stmt 0 view .LVU123
+ 405 0014 024B     		ldr	r3, .L18
+ 406              	.LVL24:
+ 407              		.loc 1 164 17 view .LVU124
+ 408 0016 0022     		movs	r2, #0
+ 409 0018 1A70     		strb	r2, [r3]
+ 165:bsp/bsp_ultrasonic.c **** 
+ 166:bsp/bsp_ultrasonic.c ****     return 1U;
+ 410              		.loc 1 166 5 is_stmt 1 view .LVU125
+ 411              		.loc 1 166 12 is_stmt 0 view .LVU126
+ 412 001a 0120     		movs	r0, #1
+ 413              	.L16:
+ 167:bsp/bsp_ultrasonic.c **** }
+ 414              		.loc 1 167 1 view .LVU127
+ 415 001c 7047     		bx	lr
+ 416              	.L19:
+ 417 001e 00BF     		.align	2
+ 418              	.L18:
+ 419 0020 00000000 		.word	s_have_echo
+ 420 0024 00000000 		.word	s_width_us
+ 421              		.cfi_endproc
+ 422              	.LFE33:
+ 424              		.section	.text.BSP_Ultrasonic_ResetEcho,"ax",%progbits
+ 425              		.align	1
+ 426              		.global	BSP_Ultrasonic_ResetEcho
+ 427              		.syntax unified
+ 428              		.thumb
+ 429              		.thumb_func
+ 431              	BSP_Ultrasonic_ResetEcho:
+ 432              	.LFB34:
+ 168:bsp/bsp_ultrasonic.c **** 
+ 169:bsp/bsp_ultrasonic.c **** void BSP_Ultrasonic_ResetEcho(void)
+ 170:bsp/bsp_ultrasonic.c **** {
+ 433              		.loc 1 170 1 is_stmt 1 view -0
+ 434              		.cfi_startproc
+ 435              		@ args = 0, pretend = 0, frame = 0
+ 436              		@ frame_needed = 0, uses_anonymous_args = 0
+ 437 0000 08B5     		push	{r3, lr}
+ 438              		.cfi_def_cfa_offset 8
+ 439              		.cfi_offset 3, -8
+ 440              		.cfi_offset 14, -4
+ 171:bsp/bsp_ultrasonic.c ****     s_wait_rise = 1U;
+ 441              		.loc 1 171 5 view .LVU129
+ 442              		.loc 1 171 17 is_stmt 0 view .LVU130
+ 443 0002 0120     		movs	r0, #1
+ 444 0004 054B     		ldr	r3, .L22
+ 445 0006 1870     		strb	r0, [r3]
+ 172:bsp/bsp_ultrasonic.c ****     s_have_echo = 0U;
+ 446              		.loc 1 172 5 is_stmt 1 view .LVU131
+ 447              		.loc 1 172 17 is_stmt 0 view .LVU132
+ 448 0008 054B     		ldr	r3, .L22+4
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s 			page 12
+
+
+ 449 000a 0022     		movs	r2, #0
+ 450 000c 1A70     		strb	r2, [r3]
+ 173:bsp/bsp_ultrasonic.c ****     BSP_Ultrasonic_SetEdge(1U);
+ 451              		.loc 1 173 5 is_stmt 1 view .LVU133
+ 452 000e FFF7FEFF 		bl	BSP_Ultrasonic_SetEdge
+ 453              	.LVL25:
+ 174:bsp/bsp_ultrasonic.c ****     EXTI->PR = ULTRASONIC_EXTI_MASK;
+ 454              		.loc 1 174 5 view .LVU134
+ 455              		.loc 1 174 14 is_stmt 0 view .LVU135
+ 456 0012 044B     		ldr	r3, .L22+8
+ 457 0014 4FF40042 		mov	r2, #32768
+ 458 0018 5A61     		str	r2, [r3, #20]
+ 175:bsp/bsp_ultrasonic.c **** }
+ 459              		.loc 1 175 1 view .LVU136
+ 460 001a 08BD     		pop	{r3, pc}
+ 461              	.L23:
+ 462              		.align	2
+ 463              	.L22:
+ 464 001c 00000000 		.word	s_wait_rise
+ 465 0020 00000000 		.word	s_have_echo
+ 466 0024 00040140 		.word	1073808384
+ 467              		.cfi_endproc
+ 468              	.LFE34:
+ 470              		.section	.text.BSP_Ultrasonic_Trigger,"ax",%progbits
+ 471              		.align	1
+ 472              		.global	BSP_Ultrasonic_Trigger
+ 473              		.syntax unified
+ 474              		.thumb
+ 475              		.thumb_func
+ 477              	BSP_Ultrasonic_Trigger:
+ 478              	.LFB32:
+ 140:bsp/bsp_ultrasonic.c ****     /* 上一次结果作废，避免上层拿到过期脉宽 */
+ 479              		.loc 1 140 1 is_stmt 1 view -0
+ 480              		.cfi_startproc
+ 481              		@ args = 0, pretend = 0, frame = 0
+ 482              		@ frame_needed = 0, uses_anonymous_args = 0
+ 483 0000 10B5     		push	{r4, lr}
+ 484              		.cfi_def_cfa_offset 8
+ 485              		.cfi_offset 4, -8
+ 486              		.cfi_offset 14, -4
+ 142:bsp/bsp_ultrasonic.c **** 
+ 487              		.loc 1 142 5 view .LVU138
+ 142:bsp/bsp_ultrasonic.c **** 
+ 488              		.loc 1 142 17 is_stmt 0 view .LVU139
+ 489 0002 0B4B     		ldr	r3, .L28
+ 490 0004 0022     		movs	r2, #0
+ 491 0006 1A70     		strb	r2, [r3]
+ 145:bsp/bsp_ultrasonic.c ****         BSP_Ultrasonic_ResetEcho();
+ 492              		.loc 1 145 5 is_stmt 1 view .LVU140
+ 145:bsp/bsp_ultrasonic.c ****         BSP_Ultrasonic_ResetEcho();
+ 493              		.loc 1 145 21 is_stmt 0 view .LVU141
+ 494 0008 0A4B     		ldr	r3, .L28+4
+ 495 000a 1B78     		ldrb	r3, [r3]	@ zero_extendqisi2
+ 145:bsp/bsp_ultrasonic.c ****         BSP_Ultrasonic_ResetEcho();
+ 496              		.loc 1 145 8 view .LVU142
+ 497 000c 63B1     		cbz	r3, .L27
+ 498              	.L25:
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s 			page 13
+
+
+ 149:bsp/bsp_ultrasonic.c ****     Delay_us(BOARD_ULTRASONIC_TRIG_PULSE_US);
+ 499              		.loc 1 149 5 is_stmt 1 view .LVU143
+ 500 000e 0A4C     		ldr	r4, .L28+8
+ 501 0010 1021     		movs	r1, #16
+ 502 0012 2046     		mov	r0, r4
+ 503 0014 FFF7FEFF 		bl	GPIO_SetBits
+ 504              	.LVL26:
+ 150:bsp/bsp_ultrasonic.c ****     GPIO_ResetBits(BOARD_ULTRASONIC_TRIG_GPIO, BOARD_ULTRASONIC_TRIG_PIN);
+ 505              		.loc 1 150 5 view .LVU144
+ 506 0018 0A20     		movs	r0, #10
+ 507 001a FFF7FEFF 		bl	Delay_us
+ 508              	.LVL27:
+ 151:bsp/bsp_ultrasonic.c **** }
+ 509              		.loc 1 151 5 view .LVU145
+ 510 001e 1021     		movs	r1, #16
+ 511 0020 2046     		mov	r0, r4
+ 512 0022 FFF7FEFF 		bl	GPIO_ResetBits
+ 513              	.LVL28:
+ 152:bsp/bsp_ultrasonic.c **** 
+ 514              		.loc 1 152 1 is_stmt 0 view .LVU146
+ 515 0026 10BD     		pop	{r4, pc}
+ 516              	.L27:
+ 146:bsp/bsp_ultrasonic.c ****     }
+ 517              		.loc 1 146 9 is_stmt 1 view .LVU147
+ 518 0028 FFF7FEFF 		bl	BSP_Ultrasonic_ResetEcho
+ 519              	.LVL29:
+ 520 002c EFE7     		b	.L25
+ 521              	.L29:
+ 522 002e 00BF     		.align	2
+ 523              	.L28:
+ 524 0030 00000000 		.word	s_have_echo
+ 525 0034 00000000 		.word	s_wait_rise
+ 526 0038 00080140 		.word	1073809408
+ 527              		.cfi_endproc
+ 528              	.LFE32:
+ 530              		.section	.text.TIM1_UP_IRQHandler,"ax",%progbits
+ 531              		.align	1
+ 532              		.global	TIM1_UP_IRQHandler
+ 533              		.syntax unified
+ 534              		.thumb
+ 535              		.thumb_func
+ 537              	TIM1_UP_IRQHandler:
+ 538              	.LFB35:
+ 176:bsp/bsp_ultrasonic.c **** 
+ 177:bsp/bsp_ultrasonic.c **** /* ------------------------------------------------------------ 中断服务 ---- */
+ 178:bsp/bsp_ultrasonic.c **** 
+ 179:bsp/bsp_ultrasonic.c **** /* TIM1 溢出：每 65536 us 一次，累加时基高位 */
+ 180:bsp/bsp_ultrasonic.c **** void BOARD_ULTRASONIC_TIM_IRQHandler(void)
+ 181:bsp/bsp_ultrasonic.c **** {
+ 539              		.loc 1 181 1 view -0
+ 540              		.cfi_startproc
+ 541              		@ args = 0, pretend = 0, frame = 0
+ 542              		@ frame_needed = 0, uses_anonymous_args = 0
+ 543 0000 08B5     		push	{r3, lr}
+ 544              		.cfi_def_cfa_offset 8
+ 545              		.cfi_offset 3, -8
+ 546              		.cfi_offset 14, -4
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s 			page 14
+
+
+ 182:bsp/bsp_ultrasonic.c ****     if (TIM_GetITStatus(BOARD_ULTRASONIC_TIM, TIM_IT_Update) != RESET) {
+ 547              		.loc 1 182 5 view .LVU149
+ 548              		.loc 1 182 9 is_stmt 0 view .LVU150
+ 549 0002 0121     		movs	r1, #1
+ 550 0004 0748     		ldr	r0, .L34
+ 551 0006 FFF7FEFF 		bl	TIM_GetITStatus
+ 552              	.LVL30:
+ 553              		.loc 1 182 8 discriminator 1 view .LVU151
+ 554 000a 00B9     		cbnz	r0, .L33
+ 555              	.L30:
+ 183:bsp/bsp_ultrasonic.c ****         s_us_high += 65536UL;
+ 184:bsp/bsp_ultrasonic.c ****         TIM_ClearITPendingBit(BOARD_ULTRASONIC_TIM, TIM_IT_Update);
+ 185:bsp/bsp_ultrasonic.c ****     }
+ 186:bsp/bsp_ultrasonic.c **** }
+ 556              		.loc 1 186 1 view .LVU152
+ 557 000c 08BD     		pop	{r3, pc}
+ 558              	.L33:
+ 183:bsp/bsp_ultrasonic.c ****         s_us_high += 65536UL;
+ 559              		.loc 1 183 9 is_stmt 1 view .LVU153
+ 183:bsp/bsp_ultrasonic.c ****         s_us_high += 65536UL;
+ 560              		.loc 1 183 19 is_stmt 0 view .LVU154
+ 561 000e 064A     		ldr	r2, .L34+4
+ 562 0010 1368     		ldr	r3, [r2]
+ 563 0012 03F58033 		add	r3, r3, #65536
+ 564 0016 1360     		str	r3, [r2]
+ 184:bsp/bsp_ultrasonic.c ****     }
+ 565              		.loc 1 184 9 is_stmt 1 view .LVU155
+ 566 0018 0121     		movs	r1, #1
+ 567 001a 0248     		ldr	r0, .L34
+ 568 001c FFF7FEFF 		bl	TIM_ClearITPendingBit
+ 569              	.LVL31:
+ 570              		.loc 1 186 1 is_stmt 0 view .LVU156
+ 571 0020 F4E7     		b	.L30
+ 572              	.L35:
+ 573 0022 00BF     		.align	2
+ 574              	.L34:
+ 575 0024 002C0140 		.word	1073818624
+ 576 0028 00000000 		.word	s_us_high
+ 577              		.cfi_endproc
+ 578              	.LFE35:
+ 580              		.section	.text.EXTI15_10_IRQHandler,"ax",%progbits
+ 581              		.align	1
+ 582              		.global	EXTI15_10_IRQHandler
+ 583              		.syntax unified
+ 584              		.thumb
+ 585              		.thumb_func
+ 587              	EXTI15_10_IRQHandler:
+ 588              	.LFB36:
+ 187:bsp/bsp_ultrasonic.c **** 
+ 188:bsp/bsp_ultrasonic.c **** /* EXTI 线 12：回波上升沿 / 下降沿 */
+ 189:bsp/bsp_ultrasonic.c **** void BOARD_ULTRASONIC_ECHO_IRQHandler(void)
+ 190:bsp/bsp_ultrasonic.c **** {
+ 589              		.loc 1 190 1 is_stmt 1 view -0
+ 590              		.cfi_startproc
+ 591              		@ args = 0, pretend = 0, frame = 0
+ 592              		@ frame_needed = 0, uses_anonymous_args = 0
+ 593 0000 08B5     		push	{r3, lr}
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s 			page 15
+
+
+ 594              		.cfi_def_cfa_offset 8
+ 595              		.cfi_offset 3, -8
+ 596              		.cfi_offset 14, -4
+ 191:bsp/bsp_ultrasonic.c ****     if ((EXTI->PR & ULTRASONIC_EXTI_MASK) == 0UL) {
+ 597              		.loc 1 191 5 view .LVU158
+ 598              		.loc 1 191 14 is_stmt 0 view .LVU159
+ 599 0002 164B     		ldr	r3, .L42
+ 600 0004 5B69     		ldr	r3, [r3, #20]
+ 601              		.loc 1 191 8 view .LVU160
+ 602 0006 13F4004F 		tst	r3, #32768
+ 603 000a 0FD0     		beq	.L36
+ 192:bsp/bsp_ultrasonic.c ****         return;
+ 193:bsp/bsp_ultrasonic.c ****     }
+ 194:bsp/bsp_ultrasonic.c **** 
+ 195:bsp/bsp_ultrasonic.c ****     /* 写 1 清挂起（否则会反复进中断） */
+ 196:bsp/bsp_ultrasonic.c ****     EXTI->PR = ULTRASONIC_EXTI_MASK;
+ 604              		.loc 1 196 5 is_stmt 1 view .LVU161
+ 605              		.loc 1 196 14 is_stmt 0 view .LVU162
+ 606 000c 134B     		ldr	r3, .L42
+ 607 000e 4FF40042 		mov	r2, #32768
+ 608 0012 5A61     		str	r2, [r3, #20]
+ 197:bsp/bsp_ultrasonic.c **** 
+ 198:bsp/bsp_ultrasonic.c ****     if (s_wait_rise != 0U) {
+ 609              		.loc 1 198 5 is_stmt 1 view .LVU163
+ 610              		.loc 1 198 21 is_stmt 0 view .LVU164
+ 611 0014 124B     		ldr	r3, .L42+4
+ 612 0016 1B78     		ldrb	r3, [r3]	@ zero_extendqisi2
+ 613              		.loc 1 198 8 view .LVU165
+ 614 0018 4BB1     		cbz	r3, .L38
+ 199:bsp/bsp_ultrasonic.c ****         /* 上升沿：回波开始 */
+ 200:bsp/bsp_ultrasonic.c ****         s_rise_us = BSP_Ultrasonic_GetTimeUs();
+ 615              		.loc 1 200 9 is_stmt 1 view .LVU166
+ 616              		.loc 1 200 21 is_stmt 0 view .LVU167
+ 617 001a FFF7FEFF 		bl	BSP_Ultrasonic_GetTimeUs
+ 618              	.LVL32:
+ 619              		.loc 1 200 19 discriminator 1 view .LVU168
+ 620 001e 114B     		ldr	r3, .L42+8
+ 621 0020 1860     		str	r0, [r3]
+ 201:bsp/bsp_ultrasonic.c ****         s_wait_rise = 0U;
+ 622              		.loc 1 201 9 is_stmt 1 view .LVU169
+ 623              		.loc 1 201 21 is_stmt 0 view .LVU170
+ 624 0022 0020     		movs	r0, #0
+ 625 0024 0E4B     		ldr	r3, .L42+4
+ 626 0026 1870     		strb	r0, [r3]
+ 202:bsp/bsp_ultrasonic.c ****         BSP_Ultrasonic_SetEdge(0U);
+ 627              		.loc 1 202 9 is_stmt 1 view .LVU171
+ 628 0028 FFF7FEFF 		bl	BSP_Ultrasonic_SetEdge
+ 629              	.LVL33:
+ 630              	.L36:
+ 203:bsp/bsp_ultrasonic.c ****     } else {
+ 204:bsp/bsp_ultrasonic.c ****         /* 下降沿：回波结束 */
+ 205:bsp/bsp_ultrasonic.c ****         uint32_t now_us = BSP_Ultrasonic_GetTimeUs();
+ 206:bsp/bsp_ultrasonic.c ****         uint32_t width_us = now_us - s_rise_us;
+ 207:bsp/bsp_ultrasonic.c **** 
+ 208:bsp/bsp_ultrasonic.c ****         /* 超过 65535 us 说明是异常长脉冲（或时基撕裂），钳住即可，
+ 209:bsp/bsp_ultrasonic.c ****          * 上层量程判定会把它当无效值丢掉。 */
+ 210:bsp/bsp_ultrasonic.c ****         s_width_us = (width_us > 0xFFFFUL) ? 0xFFFFU : (uint16_t)width_us;
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s 			page 16
+
+
+ 211:bsp/bsp_ultrasonic.c ****         s_wait_rise = 1U;
+ 212:bsp/bsp_ultrasonic.c ****         s_have_echo = 1U;
+ 213:bsp/bsp_ultrasonic.c ****         BSP_Ultrasonic_SetEdge(1U);
+ 214:bsp/bsp_ultrasonic.c ****     }
+ 215:bsp/bsp_ultrasonic.c **** }
+ 631              		.loc 1 215 1 is_stmt 0 view .LVU172
+ 632 002c 08BD     		pop	{r3, pc}
+ 633              	.L38:
+ 634              	.LBB2:
+ 205:bsp/bsp_ultrasonic.c ****         uint32_t width_us = now_us - s_rise_us;
+ 635              		.loc 1 205 9 is_stmt 1 view .LVU173
+ 205:bsp/bsp_ultrasonic.c ****         uint32_t width_us = now_us - s_rise_us;
+ 636              		.loc 1 205 27 is_stmt 0 view .LVU174
+ 637 002e FFF7FEFF 		bl	BSP_Ultrasonic_GetTimeUs
+ 638              	.LVL34:
+ 206:bsp/bsp_ultrasonic.c **** 
+ 639              		.loc 1 206 9 is_stmt 1 view .LVU175
+ 206:bsp/bsp_ultrasonic.c **** 
+ 640              		.loc 1 206 36 is_stmt 0 view .LVU176
+ 641 0032 0C4B     		ldr	r3, .L42+8
+ 642 0034 1B68     		ldr	r3, [r3]
+ 206:bsp/bsp_ultrasonic.c **** 
+ 643              		.loc 1 206 18 view .LVU177
+ 644 0036 C01A     		subs	r0, r0, r3
+ 645              	.LVL35:
+ 210:bsp/bsp_ultrasonic.c ****         s_wait_rise = 1U;
+ 646              		.loc 1 210 9 is_stmt 1 view .LVU178
+ 210:bsp/bsp_ultrasonic.c ****         s_wait_rise = 1U;
+ 647              		.loc 1 210 20 is_stmt 0 view .LVU179
+ 648 0038 B0F5803F 		cmp	r0, #65536
+ 649 003c 0AD2     		bcs	.L40
+ 210:bsp/bsp_ultrasonic.c ****         s_wait_rise = 1U;
+ 650              		.loc 1 210 20 discriminator 1 view .LVU180
+ 651 003e 80B2     		uxth	r0, r0
+ 652              	.LVL36:
+ 653              	.L39:
+ 210:bsp/bsp_ultrasonic.c ****         s_wait_rise = 1U;
+ 654              		.loc 1 210 20 discriminator 4 view .LVU181
+ 655 0040 094B     		ldr	r3, .L42+12
+ 656 0042 1880     		strh	r0, [r3]	@ movhi
+ 211:bsp/bsp_ultrasonic.c ****         s_have_echo = 1U;
+ 657              		.loc 1 211 9 is_stmt 1 view .LVU182
+ 211:bsp/bsp_ultrasonic.c ****         s_have_echo = 1U;
+ 658              		.loc 1 211 21 is_stmt 0 view .LVU183
+ 659 0044 0120     		movs	r0, #1
+ 660 0046 064B     		ldr	r3, .L42+4
+ 661 0048 1870     		strb	r0, [r3]
+ 212:bsp/bsp_ultrasonic.c ****         BSP_Ultrasonic_SetEdge(1U);
+ 662              		.loc 1 212 9 is_stmt 1 view .LVU184
+ 212:bsp/bsp_ultrasonic.c ****         BSP_Ultrasonic_SetEdge(1U);
+ 663              		.loc 1 212 21 is_stmt 0 view .LVU185
+ 664 004a 084B     		ldr	r3, .L42+16
+ 665 004c 1870     		strb	r0, [r3]
+ 213:bsp/bsp_ultrasonic.c ****     }
+ 666              		.loc 1 213 9 is_stmt 1 view .LVU186
+ 667 004e FFF7FEFF 		bl	BSP_Ultrasonic_SetEdge
+ 668              	.LVL37:
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s 			page 17
+
+
+ 669 0052 EBE7     		b	.L36
+ 670              	.LVL38:
+ 671              	.L40:
+ 210:bsp/bsp_ultrasonic.c ****         s_wait_rise = 1U;
+ 672              		.loc 1 210 20 is_stmt 0 discriminator 2 view .LVU187
+ 673 0054 4FF6FF70 		movw	r0, #65535
+ 674              	.LVL39:
+ 210:bsp/bsp_ultrasonic.c ****         s_wait_rise = 1U;
+ 675              		.loc 1 210 20 discriminator 2 view .LVU188
+ 676 0058 F2E7     		b	.L39
+ 677              	.L43:
+ 678 005a 00BF     		.align	2
+ 679              	.L42:
+ 680 005c 00040140 		.word	1073808384
+ 681 0060 00000000 		.word	s_wait_rise
+ 682 0064 00000000 		.word	s_rise_us
+ 683 0068 00000000 		.word	s_width_us
+ 684 006c 00000000 		.word	s_have_echo
+ 685              	.LBE2:
+ 686              		.cfi_endproc
+ 687              	.LFE36:
+ 689              		.section	.bss.s_us_high,"aw",%nobits
+ 690              		.align	2
+ 693              	s_us_high:
+ 694 0000 00000000 		.space	4
+ 695              		.section	.bss.s_have_echo,"aw",%nobits
+ 698              	s_have_echo:
+ 699 0000 00       		.space	1
+ 700              		.section	.bss.s_width_us,"aw",%nobits
+ 701              		.align	1
+ 704              	s_width_us:
+ 705 0000 0000     		.space	2
+ 706              		.section	.bss.s_rise_us,"aw",%nobits
+ 707              		.align	2
+ 710              	s_rise_us:
+ 711 0000 00000000 		.space	4
+ 712              		.section	.data.s_wait_rise,"aw"
+ 715              	s_wait_rise:
+ 716 0000 01       		.byte	1
+ 717              		.text
+ 718              	.Letext0:
+ 719              		.file 2 "D:/Microsoft VS code/stm32tools/@xpack-dev-tools/arm-none-eabi-gcc/15.2.1-1.1.1/.content/
+ 720              		.file 3 "D:/Microsoft VS code/stm32tools/@xpack-dev-tools/arm-none-eabi-gcc/15.2.1-1.1.1/.content/
+ 721              		.file 4 "Drivers/CMSIS/stm32f10x.h"
+ 722              		.file 5 "Drivers/STM32F10x_StdPeriph_Driver/inc/stm32f10x_gpio.h"
+ 723              		.file 6 "Drivers/STM32F10x_StdPeriph_Driver/inc/stm32f10x_tim.h"
+ 724              		.file 7 "Drivers/STM32F10x_StdPeriph_Driver/inc/misc.h"
+ 725              		.file 8 "System/Delay.h"
+ 726              		.file 9 "Drivers/STM32F10x_StdPeriph_Driver/inc/stm32f10x_rcc.h"
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s 			page 18
+
+
+DEFINED SYMBOLS
+                            *ABS*:00000000 bsp_ultrasonic.c
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:19     .text.BSP_Ultrasonic_SetEdge:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:24     .text.BSP_Ultrasonic_SetEdge:00000000 BSP_Ultrasonic_SetEdge
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:68     .text.BSP_Ultrasonic_SetEdge:0000002c $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:73     .text.BSP_Ultrasonic_GetTimeUs:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:78     .text.BSP_Ultrasonic_GetTimeUs:00000000 BSP_Ultrasonic_GetTimeUs
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:123    .text.BSP_Ultrasonic_GetTimeUs:00000018 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:693    .bss.s_us_high:00000000 s_us_high
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:129    .text.BSP_Ultrasonic_Init:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:135    .text.BSP_Ultrasonic_Init:00000000 BSP_Ultrasonic_Init
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:356    .text.BSP_Ultrasonic_Init:00000130 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:715    .data.s_wait_rise:00000000 s_wait_rise
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:698    .bss.s_have_echo:00000000 s_have_echo
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:704    .bss.s_width_us:00000000 s_width_us
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:369    .text.BSP_Ultrasonic_TakeEchoUs:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:375    .text.BSP_Ultrasonic_TakeEchoUs:00000000 BSP_Ultrasonic_TakeEchoUs
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:419    .text.BSP_Ultrasonic_TakeEchoUs:00000020 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:425    .text.BSP_Ultrasonic_ResetEcho:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:431    .text.BSP_Ultrasonic_ResetEcho:00000000 BSP_Ultrasonic_ResetEcho
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:464    .text.BSP_Ultrasonic_ResetEcho:0000001c $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:471    .text.BSP_Ultrasonic_Trigger:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:477    .text.BSP_Ultrasonic_Trigger:00000000 BSP_Ultrasonic_Trigger
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:524    .text.BSP_Ultrasonic_Trigger:00000030 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:531    .text.TIM1_UP_IRQHandler:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:537    .text.TIM1_UP_IRQHandler:00000000 TIM1_UP_IRQHandler
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:575    .text.TIM1_UP_IRQHandler:00000024 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:581    .text.EXTI15_10_IRQHandler:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:587    .text.EXTI15_10_IRQHandler:00000000 EXTI15_10_IRQHandler
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:680    .text.EXTI15_10_IRQHandler:0000005c $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:710    .bss.s_rise_us:00000000 s_rise_us
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:690    .bss.s_us_high:00000000 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:699    .bss.s_have_echo:00000000 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:701    .bss.s_width_us:00000000 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccHfsGfs.s:707    .bss.s_rise_us:00000000 $d
+
+UNDEFINED SYMBOLS
+TIM_GetCounter
+RCC_APB2PeriphClockCmd
+GPIO_Init
+GPIO_ResetBits
+TIM_TimeBaseStructInit
+TIM_TimeBaseInit
+TIM_SetCounter
+TIM_ClearITPendingBit
+TIM_ITConfig
+TIM_Cmd
+NVIC_Init
+GPIO_SetBits
+Delay_us
+TIM_GetITStatus

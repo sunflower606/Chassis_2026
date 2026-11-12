@@ -1,0 +1,570 @@
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccrRCAQp.s 			page 1
+
+
+   1              		.cpu cortex-m3
+   2              		.arch armv7-m
+   3              		.fpu softvfp
+   4              		.eabi_attribute 20, 1
+   5              		.eabi_attribute 21, 1
+   6              		.eabi_attribute 23, 3
+   7              		.eabi_attribute 24, 1
+   8              		.eabi_attribute 25, 1
+   9              		.eabi_attribute 26, 1
+  10              		.eabi_attribute 30, 1
+  11              		.eabi_attribute 34, 1
+  12              		.eabi_attribute 18, 4
+  13              		.file	"distance_sensor.c"
+  14              		.text
+  15              	.Ltext0:
+  16              		.cfi_sections	.debug_frame
+  17              		.file 1 "modules/distance_sensor.c"
+  18              		.section	.text.DistanceSensor_Init,"ax",%progbits
+  19              		.align	1
+  20              		.global	DistanceSensor_Init
+  21              		.syntax unified
+  22              		.thumb
+  23              		.thumb_func
+  25              	DistanceSensor_Init:
+  26              	.LFB0:
+   1:modules/distance_sensor.c **** #include "distance_sensor.h"
+   2:modules/distance_sensor.c **** 
+   3:modules/distance_sensor.c **** #include "bsp_ultrasonic.h"
+   4:modules/distance_sensor.c **** #include "chassis_config.h"
+   5:modules/distance_sensor.c **** #include "Delay.h"
+   6:modules/distance_sensor.c **** 
+   7:modules/distance_sensor.c **** static DistanceSensor_t s_distance;
+   8:modules/distance_sensor.c **** 
+   9:modules/distance_sensor.c **** /* 上一次触发时刻，ms */
+  10:modules/distance_sensor.c **** static uint32_t s_last_trigger_ms = 0U;
+  11:modules/distance_sensor.c **** 
+  12:modules/distance_sensor.c **** /* 1 = 已触发、还在等回波（用于超时判定） */
+  13:modules/distance_sensor.c **** static uint8_t s_waiting_echo = 0U;
+  14:modules/distance_sensor.c **** 
+  15:modules/distance_sensor.c **** void DistanceSensor_Init(void)
+  16:modules/distance_sensor.c **** {
+  27              		.loc 1 16 1 view -0
+  28              		.cfi_startproc
+  29              		@ args = 0, pretend = 0, frame = 0
+  30              		@ frame_needed = 0, uses_anonymous_args = 0
+  31 0000 10B5     		push	{r4, lr}
+  32              		.cfi_def_cfa_offset 8
+  33              		.cfi_offset 4, -8
+  34              		.cfi_offset 14, -4
+  17:modules/distance_sensor.c ****     s_distance.distance_cm = 0U;
+  35              		.loc 1 17 5 view .LVU1
+  36              		.loc 1 17 28 is_stmt 0 view .LVU2
+  37 0002 094B     		ldr	r3, .L3
+  38 0004 0022     		movs	r2, #0
+  39 0006 4FF00004 		mov	r4, #0	@ movhi
+  40 000a 1A80     		strh	r2, [r3]	@ movhi
+  18:modules/distance_sensor.c ****     s_distance.echo_us = 0U;
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccrRCAQp.s 			page 2
+
+
+  41              		.loc 1 18 5 is_stmt 1 view .LVU3
+  42              		.loc 1 18 24 is_stmt 0 view .LVU4
+  43 000c 5A80     		strh	r2, [r3, #2]	@ movhi
+  19:modules/distance_sensor.c ****     s_distance.valid = 0U;
+  44              		.loc 1 19 5 is_stmt 1 view .LVU5
+  45              		.loc 1 19 22 is_stmt 0 view .LVU6
+  46 000e 1C71     		strb	r4, [r3, #4]
+  20:modules/distance_sensor.c ****     s_distance.measure_count = 0U;
+  47              		.loc 1 20 5 is_stmt 1 view .LVU7
+  48              		.loc 1 20 30 is_stmt 0 view .LVU8
+  49 0010 DA60     		str	r2, [r3, #12]
+  21:modules/distance_sensor.c ****     s_distance.valid_count = 0U;
+  50              		.loc 1 21 5 is_stmt 1 view .LVU9
+  51              		.loc 1 21 28 is_stmt 0 view .LVU10
+  52 0012 1A61     		str	r2, [r3, #16]
+  22:modules/distance_sensor.c ****     s_distance.invalid_count = 0U;
+  53              		.loc 1 22 5 is_stmt 1 view .LVU11
+  54              		.loc 1 22 30 is_stmt 0 view .LVU12
+  55 0014 5A61     		str	r2, [r3, #20]
+  23:modules/distance_sensor.c **** 
+  24:modules/distance_sensor.c ****     s_last_trigger_ms = Delay_GetMs();
+  56              		.loc 1 24 5 is_stmt 1 view .LVU13
+  57              		.loc 1 24 25 is_stmt 0 view .LVU14
+  58 0016 FFF7FEFF 		bl	Delay_GetMs
+  59              	.LVL0:
+  60              		.loc 1 24 23 discriminator 1 view .LVU15
+  61 001a 044B     		ldr	r3, .L3+4
+  62 001c 1860     		str	r0, [r3]
+  25:modules/distance_sensor.c ****     s_waiting_echo = 0U;
+  63              		.loc 1 25 5 is_stmt 1 view .LVU16
+  64              		.loc 1 25 20 is_stmt 0 view .LVU17
+  65 001e 044B     		ldr	r3, .L3+8
+  66 0020 1C70     		strb	r4, [r3]
+  26:modules/distance_sensor.c **** 
+  27:modules/distance_sensor.c ****     BSP_Ultrasonic_Init();
+  67              		.loc 1 27 5 is_stmt 1 view .LVU18
+  68 0022 FFF7FEFF 		bl	BSP_Ultrasonic_Init
+  69              	.LVL1:
+  28:modules/distance_sensor.c **** }
+  70              		.loc 1 28 1 is_stmt 0 view .LVU19
+  71 0026 10BD     		pop	{r4, pc}
+  72              	.L4:
+  73              		.align	2
+  74              	.L3:
+  75 0028 00000000 		.word	s_distance
+  76 002c 00000000 		.word	s_last_trigger_ms
+  77 0030 00000000 		.word	s_waiting_echo
+  78              		.cfi_endproc
+  79              	.LFE0:
+  81              		.section	.text.DistanceSensor_Poll,"ax",%progbits
+  82              		.align	1
+  83              		.global	DistanceSensor_Poll
+  84              		.syntax unified
+  85              		.thumb
+  86              		.thumb_func
+  88              	DistanceSensor_Poll:
+  89              	.LFB1:
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccrRCAQp.s 			page 3
+
+
+  29:modules/distance_sensor.c **** 
+  30:modules/distance_sensor.c **** void DistanceSensor_Poll(void)
+  31:modules/distance_sensor.c **** {
+  90              		.loc 1 31 1 is_stmt 1 view -0
+  91              		.cfi_startproc
+  92              		@ args = 0, pretend = 0, frame = 8
+  93              		@ frame_needed = 0, uses_anonymous_args = 0
+  94 0000 10B5     		push	{r4, lr}
+  95              		.cfi_def_cfa_offset 8
+  96              		.cfi_offset 4, -8
+  97              		.cfi_offset 14, -4
+  98 0002 82B0     		sub	sp, sp, #8
+  99              		.cfi_def_cfa_offset 16
+  32:modules/distance_sensor.c ****     uint32_t now_ms = Delay_GetMs();
+ 100              		.loc 1 32 5 view .LVU21
+ 101              		.loc 1 32 23 is_stmt 0 view .LVU22
+ 102 0004 FFF7FEFF 		bl	Delay_GetMs
+ 103              	.LVL2:
+ 104 0008 0446     		mov	r4, r0
+ 105              	.LVL3:
+  33:modules/distance_sensor.c ****     uint16_t echo_us = 0U;
+ 106              		.loc 1 33 5 is_stmt 1 view .LVU23
+ 107              		.loc 1 33 14 is_stmt 0 view .LVU24
+ 108 000a 0023     		movs	r3, #0
+ 109 000c ADF80630 		strh	r3, [sp, #6]	@ movhi
+  34:modules/distance_sensor.c **** 
+  35:modules/distance_sensor.c ****     /* ---------- 1. 到周期就发一次触发 ---------- */
+  36:modules/distance_sensor.c ****     if ((uint32_t)(now_ms - s_last_trigger_ms) >= CHASSIS_ULTRASONIC_PERIOD_MS) {
+ 110              		.loc 1 36 5 is_stmt 1 view .LVU25
+ 111              		.loc 1 36 27 is_stmt 0 view .LVU26
+ 112 0010 244B     		ldr	r3, .L16
+ 113 0012 1B68     		ldr	r3, [r3]
+ 114 0014 C31A     		subs	r3, r0, r3
+ 115              		.loc 1 36 8 view .LVU27
+ 116 0016 3B2B     		cmp	r3, #59
+ 117 0018 0ED8     		bhi	.L13
+ 118              	.LVL4:
+ 119              	.L6:
+  37:modules/distance_sensor.c ****         s_last_trigger_ms = now_ms;
+  38:modules/distance_sensor.c ****         s_waiting_echo = 1U;
+  39:modules/distance_sensor.c ****         s_distance.measure_count++;
+  40:modules/distance_sensor.c **** 
+  41:modules/distance_sensor.c ****         BSP_Ultrasonic_Trigger();
+  42:modules/distance_sensor.c ****     }
+  43:modules/distance_sensor.c **** 
+  44:modules/distance_sensor.c ****     /* ---------- 2. 有回波就换算 ---------- */
+  45:modules/distance_sensor.c ****     if (BSP_Ultrasonic_TakeEchoUs(&echo_us) != 0U) {
+ 120              		.loc 1 45 5 is_stmt 1 view .LVU28
+ 121              		.loc 1 45 9 is_stmt 0 view .LVU29
+ 122 001a 0DF10600 		add	r0, sp, #6
+ 123 001e FFF7FEFF 		bl	BSP_Ultrasonic_TakeEchoUs
+ 124              	.LVL5:
+ 125              		.loc 1 45 8 discriminator 1 view .LVU30
+ 126 0022 A8B9     		cbnz	r0, .L14
+  46:modules/distance_sensor.c ****         uint32_t distance_cm = (uint32_t)echo_us / CHASSIS_ULTRASONIC_US_PER_CM;
+  47:modules/distance_sensor.c **** 
+  48:modules/distance_sensor.c ****         s_waiting_echo = 0U;
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccrRCAQp.s 			page 4
+
+
+  49:modules/distance_sensor.c ****         s_distance.echo_us = echo_us;
+  50:modules/distance_sensor.c ****         s_distance.last_update_ms = now_ms;
+  51:modules/distance_sensor.c **** 
+  52:modules/distance_sensor.c ****         /* 量程判定：小于 MIN 是盲区读数不可信，大于 MAX 已超出模块能力 */
+  53:modules/distance_sensor.c ****         if (distance_cm >= (uint32_t)CHASSIS_ULTRASONIC_MIN_CM &&
+  54:modules/distance_sensor.c ****             distance_cm <= (uint32_t)CHASSIS_ULTRASONIC_MAX_CM) {
+  55:modules/distance_sensor.c ****             s_distance.distance_cm = (uint16_t)distance_cm;
+  56:modules/distance_sensor.c ****             s_distance.valid = 1U;
+  57:modules/distance_sensor.c ****             s_distance.valid_count++;
+  58:modules/distance_sensor.c ****         } else {
+  59:modules/distance_sensor.c ****             s_distance.valid = 0U;
+  60:modules/distance_sensor.c ****             s_distance.invalid_count++;
+  61:modules/distance_sensor.c ****         }
+  62:modules/distance_sensor.c **** 
+  63:modules/distance_sensor.c ****         return;
+  64:modules/distance_sensor.c ****     }
+  65:modules/distance_sensor.c **** 
+  66:modules/distance_sensor.c ****     /* ---------- 3. 等太久没有回波：判无效 ---------- */
+  67:modules/distance_sensor.c ****     if (s_waiting_echo != 0U &&
+ 127              		.loc 1 67 5 is_stmt 1 view .LVU31
+ 128              		.loc 1 67 24 is_stmt 0 view .LVU32
+ 129 0024 204B     		ldr	r3, .L16+4
+ 130 0026 1B78     		ldrb	r3, [r3]	@ zero_extendqisi2
+ 131              		.loc 1 67 8 view .LVU33
+ 132 0028 23B1     		cbz	r3, .L5
+  68:modules/distance_sensor.c ****         (uint32_t)(now_ms - s_last_trigger_ms) > CHASSIS_ULTRASONIC_ECHO_TIMEOUT_MS) {
+ 133              		.loc 1 68 27 view .LVU34
+ 134 002a 1E4B     		ldr	r3, .L16
+ 135 002c 1B68     		ldr	r3, [r3]
+ 136 002e E41A     		subs	r4, r4, r3
+ 137              	.LVL6:
+  67:modules/distance_sensor.c ****         (uint32_t)(now_ms - s_last_trigger_ms) > CHASSIS_ULTRASONIC_ECHO_TIMEOUT_MS) {
+ 138              		.loc 1 67 30 discriminator 1 view .LVU35
+ 139 0030 322C     		cmp	r4, #50
+ 140 0032 2CD8     		bhi	.L15
+ 141              	.L5:
+  69:modules/distance_sensor.c ****         s_waiting_echo = 0U;
+  70:modules/distance_sensor.c ****         s_distance.valid = 0U;
+  71:modules/distance_sensor.c ****         s_distance.invalid_count++;
+  72:modules/distance_sensor.c **** 
+  73:modules/distance_sensor.c ****         /* 关键：只捕到上升沿时，捕获极性停在下降沿，
+  74:modules/distance_sensor.c ****          * 不复位的话下一次测量永远接不上（表现为「从此再也没有距离」�
+  75:modules/distance_sensor.c ****         BSP_Ultrasonic_ResetEcho();
+  76:modules/distance_sensor.c ****     }
+  77:modules/distance_sensor.c **** }
+ 142              		.loc 1 77 1 view .LVU36
+ 143 0034 02B0     		add	sp, sp, #8
+ 144              		.cfi_remember_state
+ 145              		.cfi_def_cfa_offset 8
+ 146              		@ sp needed
+ 147 0036 10BD     		pop	{r4, pc}
+ 148              	.LVL7:
+ 149              	.L13:
+ 150              		.cfi_restore_state
+  37:modules/distance_sensor.c ****         s_waiting_echo = 1U;
+ 151              		.loc 1 37 9 is_stmt 1 view .LVU37
+  37:modules/distance_sensor.c ****         s_waiting_echo = 1U;
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccrRCAQp.s 			page 5
+
+
+ 152              		.loc 1 37 27 is_stmt 0 view .LVU38
+ 153 0038 1A4B     		ldr	r3, .L16
+ 154 003a 1860     		str	r0, [r3]
+  38:modules/distance_sensor.c ****         s_distance.measure_count++;
+ 155              		.loc 1 38 9 is_stmt 1 view .LVU39
+  38:modules/distance_sensor.c ****         s_distance.measure_count++;
+ 156              		.loc 1 38 24 is_stmt 0 view .LVU40
+ 157 003c 1A4B     		ldr	r3, .L16+4
+ 158 003e 0122     		movs	r2, #1
+ 159 0040 1A70     		strb	r2, [r3]
+  39:modules/distance_sensor.c **** 
+ 160              		.loc 1 39 9 is_stmt 1 view .LVU41
+  39:modules/distance_sensor.c **** 
+ 161              		.loc 1 39 19 is_stmt 0 view .LVU42
+ 162 0042 1A4A     		ldr	r2, .L16+8
+ 163 0044 D368     		ldr	r3, [r2, #12]
+  39:modules/distance_sensor.c **** 
+ 164              		.loc 1 39 33 view .LVU43
+ 165 0046 0133     		adds	r3, r3, #1
+ 166 0048 D360     		str	r3, [r2, #12]
+  41:modules/distance_sensor.c ****     }
+ 167              		.loc 1 41 9 is_stmt 1 view .LVU44
+ 168 004a FFF7FEFF 		bl	BSP_Ultrasonic_Trigger
+ 169              	.LVL8:
+  41:modules/distance_sensor.c ****     }
+ 170              		.loc 1 41 9 is_stmt 0 view .LVU45
+ 171 004e E4E7     		b	.L6
+ 172              	.L14:
+ 173              	.LBB2:
+  46:modules/distance_sensor.c **** 
+ 174              		.loc 1 46 9 is_stmt 1 view .LVU46
+  46:modules/distance_sensor.c **** 
+ 175              		.loc 1 46 50 is_stmt 0 view .LVU47
+ 176 0050 BDF80610 		ldrh	r1, [sp, #6]
+ 177 0054 164B     		ldr	r3, .L16+12
+ 178 0056 A3FB0123 		umull	r2, r3, r3, r1
+ 179 005a 5B09     		lsrs	r3, r3, #5
+ 180              	.LVL9:
+  48:modules/distance_sensor.c ****         s_distance.echo_us = echo_us;
+ 181              		.loc 1 48 9 is_stmt 1 view .LVU48
+  48:modules/distance_sensor.c ****         s_distance.echo_us = echo_us;
+ 182              		.loc 1 48 24 is_stmt 0 view .LVU49
+ 183 005c 124A     		ldr	r2, .L16+4
+ 184 005e 0020     		movs	r0, #0
+ 185 0060 1070     		strb	r0, [r2]
+  49:modules/distance_sensor.c ****         s_distance.last_update_ms = now_ms;
+ 186              		.loc 1 49 9 is_stmt 1 view .LVU50
+  49:modules/distance_sensor.c ****         s_distance.last_update_ms = now_ms;
+ 187              		.loc 1 49 28 is_stmt 0 view .LVU51
+ 188 0062 124A     		ldr	r2, .L16+8
+ 189 0064 5180     		strh	r1, [r2, #2]	@ movhi
+  50:modules/distance_sensor.c **** 
+ 190              		.loc 1 50 9 is_stmt 1 view .LVU52
+  50:modules/distance_sensor.c **** 
+ 191              		.loc 1 50 35 is_stmt 0 view .LVU53
+ 192 0066 9460     		str	r4, [r2, #8]
+  53:modules/distance_sensor.c ****             distance_cm <= (uint32_t)CHASSIS_ULTRASONIC_MAX_CM) {
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccrRCAQp.s 			page 6
+
+
+ 193              		.loc 1 53 9 is_stmt 1 view .LVU54
+  53:modules/distance_sensor.c ****             distance_cm <= (uint32_t)CHASSIS_ULTRASONIC_MAX_CM) {
+ 194              		.loc 1 53 64 is_stmt 0 view .LVU55
+ 195 0068 9A1E     		subs	r2, r3, #2
+  53:modules/distance_sensor.c ****             distance_cm <= (uint32_t)CHASSIS_ULTRASONIC_MAX_CM) {
+ 196              		.loc 1 53 12 view .LVU56
+ 197 006a B2F5C77F 		cmp	r2, #398
+ 198 006e 07D8     		bhi	.L8
+  55:modules/distance_sensor.c ****             s_distance.valid = 1U;
+ 199              		.loc 1 55 13 is_stmt 1 view .LVU57
+  55:modules/distance_sensor.c ****             s_distance.valid = 1U;
+ 200              		.loc 1 55 36 is_stmt 0 view .LVU58
+ 201 0070 0E4A     		ldr	r2, .L16+8
+ 202 0072 1380     		strh	r3, [r2]	@ movhi
+  56:modules/distance_sensor.c ****             s_distance.valid_count++;
+ 203              		.loc 1 56 13 is_stmt 1 view .LVU59
+  56:modules/distance_sensor.c ****             s_distance.valid_count++;
+ 204              		.loc 1 56 30 is_stmt 0 view .LVU60
+ 205 0074 0123     		movs	r3, #1
+ 206              	.LVL10:
+  56:modules/distance_sensor.c ****             s_distance.valid_count++;
+ 207              		.loc 1 56 30 view .LVU61
+ 208 0076 1371     		strb	r3, [r2, #4]
+  57:modules/distance_sensor.c ****         } else {
+ 209              		.loc 1 57 13 is_stmt 1 view .LVU62
+  57:modules/distance_sensor.c ****         } else {
+ 210              		.loc 1 57 23 is_stmt 0 view .LVU63
+ 211 0078 1369     		ldr	r3, [r2, #16]
+  57:modules/distance_sensor.c ****         } else {
+ 212              		.loc 1 57 35 view .LVU64
+ 213 007a 0133     		adds	r3, r3, #1
+ 214 007c 1361     		str	r3, [r2, #16]
+ 215 007e D9E7     		b	.L5
+ 216              	.LVL11:
+ 217              	.L8:
+  59:modules/distance_sensor.c ****             s_distance.invalid_count++;
+ 218              		.loc 1 59 13 is_stmt 1 view .LVU65
+  59:modules/distance_sensor.c ****             s_distance.invalid_count++;
+ 219              		.loc 1 59 30 is_stmt 0 view .LVU66
+ 220 0080 0A4B     		ldr	r3, .L16+8
+ 221              	.LVL12:
+  59:modules/distance_sensor.c ****             s_distance.invalid_count++;
+ 222              		.loc 1 59 30 view .LVU67
+ 223 0082 0022     		movs	r2, #0
+ 224              	.LVL13:
+  59:modules/distance_sensor.c ****             s_distance.invalid_count++;
+ 225              		.loc 1 59 30 view .LVU68
+ 226 0084 1A71     		strb	r2, [r3, #4]
+  60:modules/distance_sensor.c ****         }
+ 227              		.loc 1 60 13 is_stmt 1 view .LVU69
+  60:modules/distance_sensor.c ****         }
+ 228              		.loc 1 60 23 is_stmt 0 view .LVU70
+ 229 0086 5A69     		ldr	r2, [r3, #20]
+  60:modules/distance_sensor.c ****         }
+ 230              		.loc 1 60 37 view .LVU71
+ 231 0088 0132     		adds	r2, r2, #1
+ 232 008a 5A61     		str	r2, [r3, #20]
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccrRCAQp.s 			page 7
+
+
+  63:modules/distance_sensor.c ****     }
+ 233              		.loc 1 63 9 is_stmt 1 view .LVU72
+ 234 008c D2E7     		b	.L5
+ 235              	.LVL14:
+ 236              	.L15:
+  63:modules/distance_sensor.c ****     }
+ 237              		.loc 1 63 9 is_stmt 0 view .LVU73
+ 238              	.LBE2:
+  69:modules/distance_sensor.c ****         s_distance.valid = 0U;
+ 239              		.loc 1 69 9 is_stmt 1 view .LVU74
+  69:modules/distance_sensor.c ****         s_distance.valid = 0U;
+ 240              		.loc 1 69 24 is_stmt 0 view .LVU75
+ 241 008e 064B     		ldr	r3, .L16+4
+ 242 0090 1870     		strb	r0, [r3]
+  70:modules/distance_sensor.c ****         s_distance.invalid_count++;
+ 243              		.loc 1 70 9 is_stmt 1 view .LVU76
+  70:modules/distance_sensor.c ****         s_distance.invalid_count++;
+ 244              		.loc 1 70 26 is_stmt 0 view .LVU77
+ 245 0092 064B     		ldr	r3, .L16+8
+ 246 0094 1871     		strb	r0, [r3, #4]
+  71:modules/distance_sensor.c **** 
+ 247              		.loc 1 71 9 is_stmt 1 view .LVU78
+  71:modules/distance_sensor.c **** 
+ 248              		.loc 1 71 19 is_stmt 0 view .LVU79
+ 249 0096 5A69     		ldr	r2, [r3, #20]
+  71:modules/distance_sensor.c **** 
+ 250              		.loc 1 71 33 view .LVU80
+ 251 0098 0132     		adds	r2, r2, #1
+ 252 009a 5A61     		str	r2, [r3, #20]
+  75:modules/distance_sensor.c ****     }
+ 253              		.loc 1 75 9 is_stmt 1 view .LVU81
+ 254 009c FFF7FEFF 		bl	BSP_Ultrasonic_ResetEcho
+ 255              	.LVL15:
+ 256 00a0 C8E7     		b	.L5
+ 257              	.L17:
+ 258 00a2 00BF     		.align	2
+ 259              	.L16:
+ 260 00a4 00000000 		.word	s_last_trigger_ms
+ 261 00a8 00000000 		.word	s_waiting_echo
+ 262 00ac 00000000 		.word	s_distance
+ 263 00b0 09CB3D8D 		.word	-1925330167
+ 264              		.cfi_endproc
+ 265              	.LFE1:
+ 267              		.section	.text.DistanceSensor_Get,"ax",%progbits
+ 268              		.align	1
+ 269              		.global	DistanceSensor_Get
+ 270              		.syntax unified
+ 271              		.thumb
+ 272              		.thumb_func
+ 274              	DistanceSensor_Get:
+ 275              	.LVL16:
+ 276              	.LFB2:
+  78:modules/distance_sensor.c **** 
+  79:modules/distance_sensor.c **** DistanceSensor_t DistanceSensor_Get(void)
+  80:modules/distance_sensor.c **** {
+ 277              		.loc 1 80 1 view -0
+ 278              		.cfi_startproc
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccrRCAQp.s 			page 8
+
+
+ 279              		@ args = 0, pretend = 0, frame = 0
+ 280              		@ frame_needed = 0, uses_anonymous_args = 0
+ 281              		.loc 1 80 1 is_stmt 0 view .LVU83
+ 282 0000 10B5     		push	{r4, lr}
+ 283              		.cfi_def_cfa_offset 8
+ 284              		.cfi_offset 4, -8
+ 285              		.cfi_offset 14, -4
+ 286 0002 0446     		mov	r4, r0
+  81:modules/distance_sensor.c ****     return s_distance;
+ 287              		.loc 1 81 5 is_stmt 1 view .LVU84
+ 288              		.loc 1 81 12 is_stmt 0 view .LVU85
+ 289 0004 8446     		mov	ip, r0
+ 290 0006 DFF818E0 		ldr	lr, .L20
+ 291 000a BEE80F00 		ldmia	lr!, {r0, r1, r2, r3}
+ 292              	.LVL17:
+ 293              		.loc 1 81 12 view .LVU86
+ 294 000e ACE80F00 		stmia	ip!, {r0, r1, r2, r3}
+ 295 0012 9EE80300 		ldm	lr, {r0, r1}
+ 296 0016 8CE80300 		stm	ip, {r0, r1}
+  82:modules/distance_sensor.c **** }
+ 297              		.loc 1 82 1 view .LVU87
+ 298 001a 2046     		mov	r0, r4
+ 299 001c 10BD     		pop	{r4, pc}
+ 300              	.LVL18:
+ 301              	.L21:
+ 302              		.loc 1 82 1 view .LVU88
+ 303 001e 00BF     		.align	2
+ 304              	.L20:
+ 305 0020 00000000 		.word	s_distance
+ 306              		.cfi_endproc
+ 307              	.LFE2:
+ 309              		.section	.text.DistanceSensor_GetCm,"ax",%progbits
+ 310              		.align	1
+ 311              		.global	DistanceSensor_GetCm
+ 312              		.syntax unified
+ 313              		.thumb
+ 314              		.thumb_func
+ 316              	DistanceSensor_GetCm:
+ 317              	.LFB3:
+  83:modules/distance_sensor.c **** 
+  84:modules/distance_sensor.c **** uint16_t DistanceSensor_GetCm(void)
+  85:modules/distance_sensor.c **** {
+ 318              		.loc 1 85 1 is_stmt 1 view -0
+ 319              		.cfi_startproc
+ 320              		@ args = 0, pretend = 0, frame = 0
+ 321              		@ frame_needed = 0, uses_anonymous_args = 0
+ 322              		@ link register save eliminated.
+  86:modules/distance_sensor.c ****     return s_distance.distance_cm;
+ 323              		.loc 1 86 5 view .LVU90
+  87:modules/distance_sensor.c **** }
+ 324              		.loc 1 87 1 is_stmt 0 view .LVU91
+ 325 0000 014B     		ldr	r3, .L23
+ 326 0002 1888     		ldrh	r0, [r3]
+ 327 0004 7047     		bx	lr
+ 328              	.L24:
+ 329 0006 00BF     		.align	2
+ 330              	.L23:
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccrRCAQp.s 			page 9
+
+
+ 331 0008 00000000 		.word	s_distance
+ 332              		.cfi_endproc
+ 333              	.LFE3:
+ 335              		.section	.text.DistanceSensor_IsValid,"ax",%progbits
+ 336              		.align	1
+ 337              		.global	DistanceSensor_IsValid
+ 338              		.syntax unified
+ 339              		.thumb
+ 340              		.thumb_func
+ 342              	DistanceSensor_IsValid:
+ 343              	.LFB4:
+  88:modules/distance_sensor.c **** 
+  89:modules/distance_sensor.c **** uint8_t DistanceSensor_IsValid(void)
+  90:modules/distance_sensor.c **** {
+ 344              		.loc 1 90 1 is_stmt 1 view -0
+ 345              		.cfi_startproc
+ 346              		@ args = 0, pretend = 0, frame = 0
+ 347              		@ frame_needed = 0, uses_anonymous_args = 0
+ 348              		@ link register save eliminated.
+  91:modules/distance_sensor.c ****     return s_distance.valid;
+ 349              		.loc 1 91 5 view .LVU93
+  92:modules/distance_sensor.c **** }
+ 350              		.loc 1 92 1 is_stmt 0 view .LVU94
+ 351 0000 014B     		ldr	r3, .L26
+ 352 0002 1879     		ldrb	r0, [r3, #4]	@ zero_extendqisi2
+ 353 0004 7047     		bx	lr
+ 354              	.L27:
+ 355 0006 00BF     		.align	2
+ 356              	.L26:
+ 357 0008 00000000 		.word	s_distance
+ 358              		.cfi_endproc
+ 359              	.LFE4:
+ 361              		.section	.bss.s_waiting_echo,"aw",%nobits
+ 364              	s_waiting_echo:
+ 365 0000 00       		.space	1
+ 366              		.section	.bss.s_last_trigger_ms,"aw",%nobits
+ 367              		.align	2
+ 370              	s_last_trigger_ms:
+ 371 0000 00000000 		.space	4
+ 372              		.section	.bss.s_distance,"aw",%nobits
+ 373              		.align	2
+ 376              	s_distance:
+ 377 0000 00000000 		.space	24
+ 377      00000000 
+ 377      00000000 
+ 377      00000000 
+ 377      00000000 
+ 378              		.text
+ 379              	.Letext0:
+ 380              		.file 2 "D:/Microsoft VS code/stm32tools/@xpack-dev-tools/arm-none-eabi-gcc/15.2.1-1.1.1/.content/
+ 381              		.file 3 "D:/Microsoft VS code/stm32tools/@xpack-dev-tools/arm-none-eabi-gcc/15.2.1-1.1.1/.content/
+ 382              		.file 4 "modules/distance_sensor.h"
+ 383              		.file 5 "bsp/bsp_ultrasonic.h"
+ 384              		.file 6 "System/Delay.h"
+ARM GAS  C:\Users\XIANGR~1\AppData\Local\Temp\ccrRCAQp.s 			page 10
+
+
+DEFINED SYMBOLS
+                            *ABS*:00000000 distance_sensor.c
+C:\Users\XIANGR~1\AppData\Local\Temp\ccrRCAQp.s:19     .text.DistanceSensor_Init:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccrRCAQp.s:25     .text.DistanceSensor_Init:00000000 DistanceSensor_Init
+C:\Users\XIANGR~1\AppData\Local\Temp\ccrRCAQp.s:75     .text.DistanceSensor_Init:00000028 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccrRCAQp.s:376    .bss.s_distance:00000000 s_distance
+C:\Users\XIANGR~1\AppData\Local\Temp\ccrRCAQp.s:370    .bss.s_last_trigger_ms:00000000 s_last_trigger_ms
+C:\Users\XIANGR~1\AppData\Local\Temp\ccrRCAQp.s:364    .bss.s_waiting_echo:00000000 s_waiting_echo
+C:\Users\XIANGR~1\AppData\Local\Temp\ccrRCAQp.s:82     .text.DistanceSensor_Poll:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccrRCAQp.s:88     .text.DistanceSensor_Poll:00000000 DistanceSensor_Poll
+C:\Users\XIANGR~1\AppData\Local\Temp\ccrRCAQp.s:260    .text.DistanceSensor_Poll:000000a4 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccrRCAQp.s:268    .text.DistanceSensor_Get:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccrRCAQp.s:274    .text.DistanceSensor_Get:00000000 DistanceSensor_Get
+C:\Users\XIANGR~1\AppData\Local\Temp\ccrRCAQp.s:305    .text.DistanceSensor_Get:00000020 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccrRCAQp.s:310    .text.DistanceSensor_GetCm:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccrRCAQp.s:316    .text.DistanceSensor_GetCm:00000000 DistanceSensor_GetCm
+C:\Users\XIANGR~1\AppData\Local\Temp\ccrRCAQp.s:331    .text.DistanceSensor_GetCm:00000008 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccrRCAQp.s:336    .text.DistanceSensor_IsValid:00000000 $t
+C:\Users\XIANGR~1\AppData\Local\Temp\ccrRCAQp.s:342    .text.DistanceSensor_IsValid:00000000 DistanceSensor_IsValid
+C:\Users\XIANGR~1\AppData\Local\Temp\ccrRCAQp.s:357    .text.DistanceSensor_IsValid:00000008 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccrRCAQp.s:365    .bss.s_waiting_echo:00000000 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccrRCAQp.s:367    .bss.s_last_trigger_ms:00000000 $d
+C:\Users\XIANGR~1\AppData\Local\Temp\ccrRCAQp.s:373    .bss.s_distance:00000000 $d
+
+UNDEFINED SYMBOLS
+Delay_GetMs
+BSP_Ultrasonic_Init
+BSP_Ultrasonic_TakeEchoUs
+BSP_Ultrasonic_Trigger
+BSP_Ultrasonic_ResetEcho
