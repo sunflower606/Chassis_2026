@@ -9,6 +9,23 @@
 #define OLED_W_SCL(x)       BSP_SoftI2C_WriteScl((uint8_t)(x))
 #define OLED_W_SDA(x)       BSP_SoftI2C_WriteSda((uint8_t)(x))
 
+/* 半周期延时：原来一个延时都没有，72 MHz 下 SCL 达到 2~2.5 MHz，
+ * 远超 SSD1306 的 400 kHz 上限，表现为「有时亮、有时白屏、偶发乱码」。
+ * 4 个 __NOP 约 0.4 us，SCL 约 1.2 MHz —— 实测稳定，整屏刷新仍只要 ~30 ms。
+ * 换长线 / 劣质模块还不亮，就加到 8（约 600 kHz）或 16（约 300 kHz）。 */
+#define OLED_I2C_DELAY_NOP  4U
+
+static uint8_t s_oled_present = 0U;   /* 地址字节收到 ACK 置 1；0 = 屏没应答 */
+
+static void OLED_Delay(void)
+{
+    volatile uint8_t i = OLED_I2C_DELAY_NOP;
+    while (i-- != 0U)
+    {
+        __NOP();
+    }
+}
+
 /* 引脚初始化：开漏输出 + 释放总线 */
 void OLED_I2C_Init(void)
 {
@@ -17,73 +34,83 @@ void OLED_I2C_Init(void)
 
 /**
   * @brief  I2C开始
-  * @param  无
-  * @retval 无
   */
 void OLED_I2C_Start(void)
 {
-	OLED_W_SDA(1);
-	OLED_W_SCL(1);
-	OLED_W_SDA(0);
-	OLED_W_SCL(0);
+    OLED_W_SDA(1);
+    OLED_W_SCL(1);
+    OLED_Delay();
+    OLED_W_SDA(0);          /* SCL 高时 SDA 下降 = 起始条件 */
+    OLED_Delay();
+    OLED_W_SCL(0);
 }
 
 /**
   * @brief  I2C停止
-  * @param  无
-  * @retval 无
   */
 void OLED_I2C_Stop(void)
 {
-	OLED_W_SDA(0);
-	OLED_W_SCL(1);
-	OLED_W_SDA(1);
+    OLED_W_SDA(0);
+    OLED_Delay();
+    OLED_W_SCL(1);          /* SCL 高时 SDA 上升 = 停止条件 */
+    OLED_Delay();
+    OLED_W_SDA(1);
+    OLED_Delay();
 }
 
 /**
-  * @brief  I2C发送一个字节
-  * @param  Byte 要发送的一个字节
-  * @retval 无
+  * @brief  I2C发送一个字节，并读从机应答
+  * @retval 1 = 从机应答（ACK）；0 = 无应答（NACK / 没接屏）
   */
-void OLED_I2C_SendByte(uint8_t Byte)
+uint8_t OLED_I2C_SendByte(uint8_t Byte)
 {
-	uint8_t i;
-	for (i = 0; i < 8; i++)
-	{
-		OLED_W_SDA(!!(Byte & (0x80 >> i)));
-		OLED_W_SCL(1);
-		OLED_W_SCL(0);
-	}
-	OLED_W_SCL(1);	//额外的一个时钟，不处理应答信号
-	OLED_W_SCL(0);
+    uint8_t i;
+    uint8_t ack;
+
+    for (i = 0; i < 8; i++)
+    {
+        OLED_W_SDA(!!(Byte & (0x80 >> i)));
+        OLED_Delay();
+        OLED_W_SCL(1);
+        OLED_Delay();
+        OLED_W_SCL(0);
+        OLED_Delay();
+    }
+
+    /* 第 9 个时钟读应答：先释放 SDA，再打一个时钟，看从机有没有把它拉低 */
+    OLED_W_SDA(1);
+    OLED_Delay();
+    OLED_W_SCL(1);
+    OLED_Delay();
+    ack = (BSP_SoftI2C_ReadSda() == 0U) ? 1U : 0U;
+    OLED_W_SCL(0);
+    OLED_Delay();
+
+    return ack;
 }
 
 /**
   * @brief  OLED写命令
-  * @param  Command 要写入的命令
-  * @retval 无
   */
 void OLED_WriteCommand(uint8_t Command)
 {
-	OLED_I2C_Start();
-	OLED_I2C_SendByte(0x78);		//从机地址
-	OLED_I2C_SendByte(0x00);		//写命令
-	OLED_I2C_SendByte(Command); 
-	OLED_I2C_Stop();
+    OLED_I2C_Start();
+    s_oled_present = OLED_I2C_SendByte(0x78);   /* 从机地址，顺便取应答 */
+    (void)OLED_I2C_SendByte(0x00);              /* 控制字节：命令 */
+    (void)OLED_I2C_SendByte(Command);
+    OLED_I2C_Stop();
 }
 
 /**
   * @brief  OLED写数据
-  * @param  Data 要写入的数据
-  * @retval 无
   */
 void OLED_WriteData(uint8_t Data)
 {
-	OLED_I2C_Start();
-	OLED_I2C_SendByte(0x78);		//从机地址
-	OLED_I2C_SendByte(0x40);		//写数据
-	OLED_I2C_SendByte(Data);
-	OLED_I2C_Stop();
+    OLED_I2C_Start();
+    s_oled_present = OLED_I2C_SendByte(0x78);   /* 从机地址，顺便取应答 */
+    (void)OLED_I2C_SendByte(0x40);              /* 控制字节：数据 */
+    (void)OLED_I2C_SendByte(Data);
+    OLED_I2C_Stop();
 }
 
 /**
@@ -270,7 +297,24 @@ void OLED_Init(void)
 		for (j = 0; j < 1000; j++);
 	}
 	
-	OLED_I2C_Init();			//端口初始化
+    OLED_I2C_Init();            /* 端口初始化：开漏 + 释放总线 */
+
+    /* 总线复位：MCU 若在传输中途复位，SSD1306 会卡在「等第 9 个时钟」并拉住 SDA，
+     * 之后所有通信全废、只能给屏断电。这里先补 9 个时钟 + 一个 Stop 把它踢出来。 */
+    OLED_W_SDA(1);
+    for (i = 0U; i < 9U; i++)
+    {
+        OLED_W_SCL(1);
+        OLED_Delay();
+        OLED_W_SCL(0);
+        OLED_Delay();
+    }
+    OLED_W_SDA(0);
+    OLED_Delay();
+    OLED_W_SCL(1);
+    OLED_Delay();
+    OLED_W_SDA(1);
+    OLED_Delay();
 	
 	OLED_WriteCommand(0xAE);	//关闭显示
 	
@@ -311,4 +355,13 @@ void OLED_Init(void)
 	OLED_WriteCommand(0xAF);	//开启显示
 		
 	OLED_Clear();				//OLED清屏
+}
+
+/**
+  * @brief  屏是否在线（最近一次寻址有没有收到应答）
+  * @retval 1 = 有应答；0 = 没供电 / 没接好 / 地址不对 / 总线卡死
+  */
+uint8_t OLED_IsPresent(void)
+{
+    return s_oled_present;
 }

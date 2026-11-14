@@ -50,4 +50,10 @@ void OLED_ShowHexNum(uint8_t Line, uint8_t Column, uint32_t Number, uint8_t Leng
 /** @brief 显示二进制数（Length 为位数）。 */
 void OLED_ShowBinNum(uint8_t Line, uint8_t Column, uint32_t Number, uint8_t Length);
 
+/**
+ * @brief 屏是否在线（最近一次 I2C 寻址有没有收到应答）。
+ * @retval 1 = 有应答；0 = 没供电 / 没接好 / 地址不对 / 总线卡死。
+ */
+uint8_t OLED_IsPresent(void);
+
 #endif /* OLED_H */

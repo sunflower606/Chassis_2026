@@ -20,6 +20,12 @@
 #error "CHASSIS_SEARCH_HOLD_MS must be < CHASSIS_LINK_TIMEOUT_MS"
 #endif
 
+/* 对准迟滞必须留出带宽：恢复带 <= 停止带时，迟滞退化成单点阈值，
+ * 偏角在阈值附近抖时车会「停一下、转一下」地点头。 */
+#if (CHASSIS_ALIGN_RESUME_TENTH_DEG <= CHASSIS_ALIGN_STOP_TENTH_DEG)
+#error "CHASSIS_ALIGN_RESUME_TENTH_DEG must be > CHASSIS_ALIGN_STOP_TENTH_DEG"
+#endif
+
 /* 当前模式 */
 static ChassisMode_t s_mode = CHASSIS_MODE_LINE_TRACK;
 
@@ -65,6 +71,43 @@ static uint32_t s_hold_ms = 0U;              /* STOP 下连续看到人的时间
 static uint32_t s_lost_ms = 0U;              /* 在线但连续看不到人的时间 */
 static int16_t s_last_dev_tenth = 0;         /* 最近一次「有人」时的 yaw 偏角 */
 static uint8_t s_safety_stopped = 0U;        /* 近距急停迟滞状态 */
+static uint8_t s_align_hold = 0U;            /* 对准迟滞：1 = 已进停止带、正在停 */
+
+/* ------------------------------------------------- P0 观测：当前执行分支
+ *
+ * 只记录、不参与任何判断（不改变任何分支行为），供串口 st= 字段使用：
+ *   0 = 未进跟随（模式 1 / 默认分支）
+ *   1 = 近距急停（距离 < 25 cm）
+ *   2 = 断链停车（IsReceiving()==0）
+ *   3 = 在线丢人后的确认期（还没开始转圈）
+ *   4 = 搜索·转圈（SPIN）
+ *   5 = 搜索·暂停（PAUSE）
+ *   6 = 搜索·缓慢（SLOW）
+ *   7 = 搜索·看到人后的停车确认（STOP）
+ *   8 = 对准（有人，但距离无效）
+ *   9 = 正常跟随（有人且有有效距离）
+ *
+ * sw = 最近一个完整 1 s 窗口内的分支切换次数（判断状态抖动有多剧烈） */
+static uint8_t s_branch_code = 0U;            /* 本拍执行的分支码 */
+static uint8_t s_branch_prev = 0U;            /* 上一拍的分支码，用于统计切换 */
+static uint16_t s_branch_switch_count = 0U;   /* 当前窗口内累计切换次数 */
+static uint16_t s_branch_sw_per_sec = 0U;     /* 上一个完整窗口的切换次数 */
+static uint32_t s_branch_win_ms = 0U;         /* 当前统计窗口起点 */
+/* dage 直接取 DistanceSensor_GetAgeMs()（距离模块内部记录的「距上次被接受的采样」）。
+ * 2026-11-14 起不要在这里按 valid 记时刻：加了「保持」之后，丢帧期间 valid 仍为 1，
+ * 按 valid 记时间会让 dage 永远是 0，正好把要观测的丢帧藏起来。 */
+
+/* 记录本拍走的分支；分支变化时累加切换计数（纯统计，无副作用）。 */
+static void ChassisTask_SetBranch(uint8_t code)
+{
+    s_branch_code = code;
+    if (code != s_branch_prev) {
+        s_branch_prev = code;
+        if (s_branch_switch_count < 0xFFFFU) {
+            s_branch_switch_count++;
+        }
+    }
+}
 
 /* 清搜索状态。保留 s_search_dir：它记录「上次搜索的方向」，
  * 下次丢人且没有有效偏角时优先沿用，避免每次都从同一侧开始。 */
@@ -168,6 +211,7 @@ static void ChassisTask_UpdateLineTrack(void)
      *   3) 输出必须限幅，并依赖 Motor_SetSpeed 内部的斜率限制。
      *
      * 现在：保持停车。 */
+    ChassisTask_SetBranch(0U);
     Motor_SetSpeed(0, 0);
 }
 
@@ -217,6 +261,7 @@ static void ChassisTask_UpdateFollow(void)
         }
     }
     if (s_safety_stopped != 0U) {
+        ChassisTask_SetBranch(1U);
         Motor_SetSpeed(0, 0);
         return;
     }
@@ -226,6 +271,7 @@ static void ChassisTask_UpdateFollow(void)
      * 两者必须分开，否则「线松了」会被误当成「人丢了」而原地转圈。 */
     if (VisionLink_IsReceiving() == 0U) {
         ChassisTask_ResetSearch();
+        ChassisTask_SetBranch(2U);
         Motor_SetSpeed(0, 0);
         return;
     }
@@ -253,6 +299,7 @@ static void ChassisTask_UpdateFollow(void)
                 ChassisTask_ResetSearch();
             }
 
+            ChassisTask_SetBranch(7U);
             Motor_SetSpeed(0, 0);
             return;
         }
@@ -287,6 +334,18 @@ static void ChassisTask_UpdateFollow(void)
         steer = ((int32_t)dev_tenth * (int32_t)CHASSIS_FOLLOW_STEER_GAIN_Q) / 10;
         steer = steer * (int32_t)CHASSIS_FOLLOW_STEER_SIGN;
 
+        /* 差速单独封顶：限制转向的快慢（不同于 duty_max 的总量限幅）。
+         * 为什么必须单独限：转向靠左右轮反向形成，差速越大转越快；
+         * 而云台帧有 250~300 ms 死时间，转太快会在「发现已经对准」之前
+         * 就把人甩出摄像头视场（实测现象：直接丢人、进搜索）。
+         * 45 度偏角 -> 120‰，转速约 35~40 度/秒，死时间内只转 10~12 度。 */
+        if (steer > (int32_t)CHASSIS_FOLLOW_STEER_MAX) {
+            steer = (int32_t)CHASSIS_FOLLOW_STEER_MAX;
+        }
+        if (steer < -(int32_t)CHASSIS_FOLLOW_STEER_MAX) {
+            steer = -(int32_t)CHASSIS_FOLLOW_STEER_MAX;
+        }
+
         if (steer > duty_max) {
             steer = duty_max;
         }
@@ -319,28 +378,65 @@ static void ChassisTask_UpdateFollow(void)
             if (forward_speed < -speed_max) {
                 forward_speed = -speed_max;
             }
+
+            ChassisTask_SetBranch(9U);
         } else {
 #if (CHASSIS_FOLLOW_REQUIRE_DISTANCE != 0)
             /* 测不到有效距离，但视觉已确认前方有人：
              * 不前进也不后退（不知道多远就不敢开），只按云台偏角「原地转向对准人」。
              *
-             * 转多快**不看偏角大小**，只看偏角方向：
-             *   偏角为正 -> 一个方向转，偏角为负 -> 反方向转，速度恒为
-             *   CHASSIS_SEARCH_SPIN_DUTY（与「丢人转圈找人」同速，250‰）。
-             * 原因：对准是「转过去」这个动作，不是「按偏差比例追」，
-             *   用增益会让大偏角时甩得很快、小偏角时又磨蹭。
-             * 偏角落进死区（已对准）-> steer 归零 -> 车停住等人。
+             * 对准律 = 纯比例 + 转速上限（死区只管「停不停」，不参与算速度）：
+             *   a = |偏角|
+             *   a ≤ 停止带              -> steer = 0（停）
+             *   停止带 ~ 恢复带 之间     -> 保持上一拍状态（迟滞，防抖）
+             *   其余                    -> steer = a × GAIN ÷ 10，夹 ±ALIGN_DUTY_MAX
+             *
+             * 为什么转速里**不扣**死区：扣掉之后越靠近目标越「没劲」，
+             *   8~12° 这一段只剩几十‰，实机看着像卡住不动。
+             *   现在转速与偏角严格成正比，停不停由停止带单独判定，两件事分开。
+             *
+             * 注意：这里**不经过** CHASSIS_FOLLOW_STEER_DEADBAND_TENTH_DEG
+             *   （跟随用的那个 7° 死区），而是直接取 link.yaw_dev_tenth_deg 的原始偏角，
+             *   避免正常跟随的死区污染对准转速。
+             *   两套死区互不影响：跟随死区 7° 只作用于「有人且有距离」的正常跟随；
+             *   对准停止带 8° 只作用于「有人但没距离」的原地对准。
+             *
+             * 为什么用比例而不用恒速：整条链路有 200~300 ms 死时间
+             *   （K230 检测 + 云台 PID + 30 ms 链路 + 5 ms 控制 + 电机斜坡），
+             *   恒速转必然按「转速 × 死时间」转过头；比例律越近越慢，自己把过冲吃掉。
+             *
+             * 迟滞：偏角 ≤ STOP 才停；偏出 ≥ RESUME 才重新转。
+             *   否则偏角在阈值附近抖时，车会「停一下、转一下」地点头。
+             *
              * 一旦超声恢复有效，下一拍就走上面的距离闭环，无缝接回跟随。
              * 原地转不前进，撞不到东西；近距急停（<25cm）仍在最前面兜底。 */
-            if (dev_tenth > 0) {
-                steer = (int32_t)CHASSIS_SEARCH_SPIN_DUTY;
-            } else if (dev_tenth < 0) {
-                steer = -(int32_t)CHASSIS_SEARCH_SPIN_DUTY;
-            } else {
-                steer = 0;
+            {
+                int32_t align_a = (int32_t)link.yaw_dev_tenth_deg;
+                int32_t align_mag = (align_a < 0) ? -align_a : align_a;
+
+                if (align_mag <= (int32_t)CHASSIS_ALIGN_STOP_TENTH_DEG) {
+                    s_align_hold = 1U;      /* 已对准，停住 */
+                } else if (align_mag >= (int32_t)CHASSIS_ALIGN_RESUME_TENTH_DEG) {
+                    s_align_hold = 0U;      /* 偏得够远，重新开始转 */
+                }
+
+                if (s_align_hold != 0U) {
+                    steer = 0;
+                } else {
+                    /* 转速与偏角成正比，不扣停止带：
+                     * 0.1 度 × (千分比/度) / 10 = 千分比 */
+                    int32_t mag = align_mag * (int32_t)CHASSIS_ALIGN_GAIN_Q / 10;
+                    if (mag > (int32_t)CHASSIS_ALIGN_DUTY_MAX) {
+                        mag = (int32_t)CHASSIS_ALIGN_DUTY_MAX;
+                    }
+                    if (align_a < 0) {
+                        mag = -mag;
+                    }
+                    steer = mag * (int32_t)CHASSIS_FOLLOW_STEER_SIGN;
+                }
             }
-            steer = steer * (int32_t)CHASSIS_FOLLOW_STEER_SIGN;
             forward_speed = 0;
+            ChassisTask_SetBranch(8U);
 #else
             /* 退化成定速前进（仅调试用） */
             forward_speed = (int32_t)CHASSIS_FOLLOW_BASE_SPEED;
@@ -352,6 +448,7 @@ static void ChassisTask_UpdateFollow(void)
 
         /* 确认期内先停车：单帧/几帧漏检不该让车突然转圈 */
         if (s_lost_ms < (uint32_t)CHASSIS_SEARCH_CONFIRM_MS) {
+            ChassisTask_SetBranch(3U);
             Motor_SetSpeed(0, 0);
             return;
         }
@@ -365,6 +462,17 @@ static void ChassisTask_UpdateFollow(void)
          * 若刚从 STOP 退回，状态机沿用原来的阶段计时/轮数继续转。 */
         steer = ChassisTask_UpdateSearchState();
         forward_speed = 0;
+
+        /* P0 观测：搜索子状态映射成分支码（4=转圈 5=暂停 6=缓慢） */
+        if (s_search_state == CHASSIS_SEARCH_SPIN) {
+            ChassisTask_SetBranch(4U);
+        } else if (s_search_state == CHASSIS_SEARCH_PAUSE) {
+            ChassisTask_SetBranch(5U);
+        } else if (s_search_state == CHASSIS_SEARCH_SLOW) {
+            ChassisTask_SetBranch(6U);
+        } else {
+            ChassisTask_SetBranch(3U);
+        }
     }
 
     /* ---------- 5. 合成差速 ---------- */
@@ -549,6 +657,14 @@ void ChassisTask_Init(void)
     s_mode = CHASSIS_MODE_LINE_TRACK;
     ChassisTask_ResetFollowState();
 
+    /* P0 观测量的初值：统计窗口从「现在」开始，
+     * 否则上电第一秒会打印出一个巨大的 sw。 */
+    s_branch_code = 0U;
+    s_branch_prev = 0U;
+    s_branch_switch_count = 0U;
+    s_branch_sw_per_sec = 0U;
+    s_branch_win_ms = now_ms;
+
     /* 上电默认：电机滑行（安全状态） */
     Motor_Stop();
 
@@ -583,6 +699,7 @@ void ChassisTask_Loop(void)
         break;
     default:
         s_mode = CHASSIS_MODE_LINE_TRACK;
+        ChassisTask_SetBranch(0U);
         Motor_Stop();
         break;
     }
@@ -595,18 +712,35 @@ void ChassisTask_Loop(void)
 
     /* ---------- 7. 节流串口回传 ---------- */
     if ((uint32_t)(now_ms - s_last_debug_ms) >= CHASSIS_DEBUG_PERIOD_MS) {
-        char text[144];
+        char text[176];
         LineSensor_t line = LineSensor_Get();
         DistanceSensor_t dist = DistanceSensor_Get();
-        int16_t enc_left = BSP_Encoder_GetLeftDelta();
-        int16_t enc_right = BSP_Encoder_GetRightDelta();
+        int16_t sp_left = Motor_GetLeftSpeed();
+        int16_t sp_right = Motor_GetRightSpeed();
+        unsigned dage_ms;
 
         s_last_debug_ms = now_ms;
+
+        /* P0 观测：每满 1 s 结算一次「分支切换次数」，作为 sw= 输出。
+         * 用固定的 1 s 窗口而不是「两次打印之间」，是因为打印周期是 500 ms，
+         * 不按窗口结算的话同一个数字会被打印两次，看着像抖动减半。 */
+        if ((uint32_t)(now_ms - s_branch_win_ms) >= 1000U) {
+            s_branch_sw_per_sec = s_branch_switch_count;
+            s_branch_switch_count = 0U;
+            s_branch_win_ms = now_ms;
+        }
+
+        /* 距离「多久没有新采样」：直接取距离模块的 age（距上次被接受的采样）。
+         * 注意 dist.valid 在保持期间仍为 1，不能用它算 dage，否则永远读到 0。
+         * 这个数大，说明超声在跟随过程中成片丢，而不是「偶尔一格」。 */
+        dage_ms = (unsigned)DistanceSensor_GetAgeMs();
+
         /* 用 snprintf 而不是 sprintf：这一行字段多，极端情况下（全是最长数值）
          * 可能超出缓冲，sprintf 会直接越界踩栈。 */
         (void)snprintf(text, sizeof(text),
                       "C: mode=%d raw=%02X lost=%d out=%d/%d dev=%d link=%d "
-                      "dist=%u/%u us=%u enc=%d/%d err=%lu srch=%d\r\n",
+                      "dist=%u/%u us=%u sp=%d/%d err=%lu srch=%d "
+                      "st=%u sw=%u dage=%u oled=%u\r\n",
                       (int)s_mode,
                       (unsigned)line.raw_levels,
                       (int)line.lost,
@@ -617,10 +751,14 @@ void ChassisTask_Loop(void)
                       (unsigned)dist.distance_cm,
                       (unsigned)dist.valid,
                       (unsigned)dist.echo_us,
-                      (int)enc_left,
-                      (int)enc_right,
+                      (int)sp_left,
+                      (int)sp_right,
                       (unsigned long)VisionLink_Get().checksum_error_count,
-                      (int)s_search_state);
+                      (int)s_search_state,
+                      (unsigned)s_branch_code,
+                      (unsigned)s_branch_sw_per_sec,
+                      dage_ms,
+                      (unsigned)OLED_IsPresent());
         BSP_UART_SendString(text);
     }
 }

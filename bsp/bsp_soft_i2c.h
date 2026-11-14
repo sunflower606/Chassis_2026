@@ -23,4 +23,10 @@ void BSP_SoftI2C_WriteScl(uint8_t level);
 /** @brief 驱动 SDA 电平。level 非 0 为高（释放），0 为低（下拉）。 */
 void BSP_SoftI2C_WriteSda(uint8_t level);
 
+/**
+ * @brief 读 SDA 的实际电平（开漏下必须读 IDR，不能读输出寄存器）。
+ * @return 非 0 为高电平，0 为低电平。用于读从机应答（ACK = 低）。
+ */
+uint8_t BSP_SoftI2C_ReadSda(void);
+
 #endif /* BSP_SOFT_I2C_H */
