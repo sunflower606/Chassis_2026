@@ -26,6 +26,9 @@ void BSP_UART_SendString(const char *text);
 /** @return 接收缓冲里未读字节数。 */
 uint16_t BSP_UART_GetRxCount(void);
 
+/** @return 发送缓冲里还有多少字节没被硬件取走（诊断用）。 */
+uint16_t BSP_UART_GetTxPending(void);
+
 /**
  * @brief 查看队首第 offset 个字节，不出队。
  * @return 1 = 取到；0 = 没有这么多字节。

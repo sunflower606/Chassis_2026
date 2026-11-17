@@ -9,6 +9,18 @@ static uint8_t s_rx_buf[BOARD_LINK_RX_BUF_SIZE];
 static volatile uint16_t s_rx_head = 0U;
 static volatile uint16_t s_rx_tail = 0U;
 
+/* 发送环形缓冲：SendString 只把字节搬进内存，真正的移位交给 TXE 中断。
+ *
+ * 改之前是「塞一个字节 -> 死等 TXE -> 再塞下一个」：115200 下 1 字节 86.8 us，
+ * 110 字节的调试行要 9.5 ms，这段时间主循环完全停摆在 while 里转圈。
+ * 改成中断后主循环只花几十微秒，剩下 110 次小中断每次 1~2 us，总 CPU 从
+ * 9500 us 降到约 150 us，而且都切在两个字节之间，不再打断控制周期。
+ *
+ * head 只有主循环写，tail 只有中断写，天然不需要关中断保护。 */
+static uint8_t s_tx_buf[BOARD_LINK_TX_BUF_SIZE];
+static volatile uint16_t s_tx_head = 0U;
+static volatile uint16_t s_tx_tail = 0U;
+
 void BSP_UART_Init(void)
 {
     GPIO_InitTypeDef gpio_init;
@@ -49,10 +61,18 @@ void BSP_UART_Init(void)
 
 void BSP_UART_SendByte(uint8_t byte)
 {
-    USART_SendData(BOARD_LINK_UART, (uint16_t)byte);
-    while (USART_GetFlagStatus(BOARD_LINK_UART, USART_FLAG_TXE) == RESET) {
-        /* 等待发送数据寄存器空 */
+    uint16_t next = (uint16_t)((s_tx_head + 1U) % BOARD_LINK_TX_BUF_SIZE);
+
+    /* 缓冲满：丢弃新字节，保护还没发出去的内容 */
+    if (next == s_tx_tail) {
+        return;
     }
+
+    s_tx_buf[s_tx_head] = byte;
+    s_tx_head = next;
+
+    /* DR 空了就进中断；重复使能无副作用 */
+    USART_ITConfig(BOARD_LINK_UART, USART_IT_TXE, ENABLE);
 }
 
 void BSP_UART_SendString(const char *text)
@@ -65,6 +85,18 @@ void BSP_UART_SendString(const char *text)
         BSP_UART_SendByte((uint8_t)(*text));
         text++;
     }
+}
+
+uint16_t BSP_UART_GetTxPending(void)
+{
+    uint16_t head = s_tx_head;
+    uint16_t tail = s_tx_tail;
+
+    if (head >= tail) {
+        return (uint16_t)(head - tail);
+    }
+
+    return (uint16_t)(BOARD_LINK_TX_BUF_SIZE - tail + head);
 }
 
 uint16_t BSP_UART_GetRxCount(void)
@@ -142,5 +174,15 @@ void BOARD_LINK_UART_IRQHandler(void)
         }
 
         USART_ClearITPendingBit(BOARD_LINK_UART, USART_IT_RXNE);
+    }
+
+    /* 发送：DR 空了就喂下一个字节，队列空就关掉自己（TXE 由写 DR 自动清除） */
+    if (USART_GetITStatus(BOARD_LINK_UART, USART_IT_TXE) != RESET) {
+        if (s_tx_tail != s_tx_head) {
+            USART_SendData(BOARD_LINK_UART, (uint16_t)s_tx_buf[s_tx_tail]);
+            s_tx_tail = (uint16_t)((s_tx_tail + 1U) % BOARD_LINK_TX_BUF_SIZE);
+        } else {
+            USART_ITConfig(BOARD_LINK_UART, USART_IT_TXE, DISABLE);
+        }
     }
 }

@@ -5,16 +5,21 @@
 
 #include "bsp_encoder.h"
 #include "chassis_config.h"
+#include "Delay.h"
 
-/* PI 实际运算的周期（秒）= 分频 × 控制周期。
+/* 名义上的 PI 周期（秒）= 分频 × 控制周期。
  * 5 ms 就走一次 PI 的话，编码器每拍只走十几个计数，
- * 1 个计数 ≈ 几十‰ 速度，PI 会跟着量化噪声来回抖，所以攒 4 拍算一次。 */
-#define SPEED_LOOP_DT_S  (((float)CHASSIS_SPEED_LOOP_DIV * (float)CHASSIS_CONTROL_PERIOD_MS) / 1000.0f)
+ * 1 个计数 ≈ 几十‰ 速度，PI 会跟着量化噪声来回抖，所以攒 4 拍算一次。
+ *
+ * ⚠️ 这只是「名义值」，不能拿它当真实 dt 用：主循环里还有 OLED 整屏刷新
+ *    （每次阻塞约 10~20 ms）、串口 sprintf 等，实际窗口会在 20~45 ms 之间漂。
+ *    真 dt 由 Delay_GetMs() 实测，见 SpeedLoop_Update()。 */
+#define SPEED_LOOP_NOMINAL_DT_S  (((float)CHASSIS_SPEED_LOOP_DIV * (float)CHASSIS_CONTROL_PERIOD_MS) / 1000.0f)
 
-/* 一个计数对应多少 ‰ 速度：
+/* 一个计数对应多少 ‰ 速度（按**实测** dt 现算）：
  *   CNT_FULL_PER_SEC 是「占空比 1000‰ 时每秒的计数」（标定值），
- *   一个 PI 窗口（SPEED_LOOP_DT_S 秒）内走满 CNT_FULL_PER_SEC × DT 个计数 = 1000‰。 */
-#define SPEED_PER_COUNT  (1000.0f / (CHASSIS_SPEED_CNT_FULL_PER_SEC * SPEED_LOOP_DT_S))
+ *   一个窗口（dt 秒）内走满 CNT_FULL_PER_SEC × dt 个计数 = 1000‰。 */
+#define SPEED_PER_COUNT_AT(dt_s)  (1000.0f / (CHASSIS_SPEED_CNT_FULL_PER_SEC * (dt_s)))
 
 typedef struct {
     float integ;   /* 积分项，单位：‰ 占空比 */
@@ -29,6 +34,10 @@ static SpeedLoopWheel_t s_right;
 static int32_t s_acc_left = 0;
 static int32_t s_acc_right = 0;
 static uint8_t s_div_count = 0U;
+
+/* 上一个 PI 窗口开始的时刻（ms）。用来算真实 dt，
+ * 避免把 OLED 刷屏造成的 45 ms 窗口当成 20 ms，导致测速偏高、占空比被误砍。 */
+static uint32_t s_last_pi_ms = 0U;
 
 static float SpeedLoop_ClampF(float value, float low, float high)
 {
@@ -48,8 +57,9 @@ static int16_t SpeedLoop_ToI16(float value)
     return (int16_t)((value >= 0.0f) ? (value + 0.5f) : (value - 0.5f));
 }
 
-/* 车轮模型：目标速度 -> 占空比 */
-static void SpeedLoop_Step(SpeedLoopWheel_t *wheel, float target)
+/* 车轮模型：目标速度 -> 占空比
+ * dt_s 为本窗口的真实时长（秒），积分与速率限制都按它缩放。 */
+static void SpeedLoop_Step(SpeedLoopWheel_t *wheel, float target, float dt_s)
 {
     const float duty_max = (float)CHASSIS_MOTOR_DUTY_MAX;
     const float prev_duty = wheel->duty;   /* 上一窗口的输出，用于速率限制 */
@@ -65,7 +75,7 @@ static void SpeedLoop_Step(SpeedLoopWheel_t *wheel, float target)
     error = target - wheel->meas;
 
     /* 积分：单位 ‰/(‰·s) × ‰ × s = ‰ */
-    wheel->integ += CHASSIS_SPEED_KI * error * SPEED_LOOP_DT_S;
+    wheel->integ += CHASSIS_SPEED_KI * error * dt_s;
     wheel->integ = SpeedLoop_ClampF(wheel->integ,
                                     -CHASSIS_SPEED_INTEG_MAX,
                                     CHASSIS_SPEED_INTEG_MAX);
@@ -80,12 +90,12 @@ static void SpeedLoop_Step(SpeedLoopWheel_t *wheel, float target)
     if (wheel->duty > duty_max) {
         wheel->duty = duty_max;
         if (error > 0.0f) {
-            wheel->integ -= CHASSIS_SPEED_KI * error * SPEED_LOOP_DT_S;
+            wheel->integ -= CHASSIS_SPEED_KI * error * dt_s;
         }
     } else if (wheel->duty < -duty_max) {
         wheel->duty = -duty_max;
         if (error < 0.0f) {
-            wheel->integ -= CHASSIS_SPEED_KI * error * SPEED_LOOP_DT_S;
+            wheel->integ -= CHASSIS_SPEED_KI * error * dt_s;
         }
     } else {
         /* 未饱和，正常 */
@@ -104,13 +114,20 @@ static void SpeedLoop_Step(SpeedLoopWheel_t *wheel, float target)
     /* 速率限制：夹住「这一窗口相对上一窗口」的变化量。
      * 没有它的时候，PI 可以这一窗口给 +700、下一窗口给 -700，
      * 电机被瞬间反接 —— 车会猛地一顿，齿轮也跟着挨打。
-     * 从 0 到 700‰ 需要 700/150 ≈ 5 个窗口 ≈ 100 ms，仍然比人手快。 */
-    if ((wheel->duty - prev_duty) > CHASSIS_SPEED_DUTY_SLEW) {
-        wheel->duty = prev_duty + CHASSIS_SPEED_DUTY_SLEW;
-    } else if ((prev_duty - wheel->duty) > CHASSIS_SPEED_DUTY_SLEW) {
-        wheel->duty = prev_duty - CHASSIS_SPEED_DUTY_SLEW;
-    } else {
-        /* 变化量在允许范围内 */
+     * 从 0 到 700‰ 需要 700/150 ≈ 5 个窗口 ≈ 100 ms，仍然比人手快。
+     *
+     * 按真实 dt 缩放：窗口被拉长到 40 ms 时允许的变化量也翻倍，
+     * 否则「窗口更长、需要修得更多」时反而被卡住，表现为车顿一下。 */
+    {
+        const float slew = CHASSIS_SPEED_DUTY_SLEW * (dt_s / SPEED_LOOP_NOMINAL_DT_S);
+
+        if ((wheel->duty - prev_duty) > slew) {
+            wheel->duty = prev_duty + slew;
+        } else if ((prev_duty - wheel->duty) > slew) {
+            wheel->duty = prev_duty - slew;
+        } else {
+            /* 变化量在允许范围内 */
+        }
     }
 
     wheel->duty = SpeedLoop_ClampF(wheel->duty, -duty_max, duty_max);
@@ -133,6 +150,7 @@ void SpeedLoop_Reset(void)
     s_acc_left = 0;
     s_acc_right = 0;
     s_div_count = 0U;
+    s_last_pi_ms = Delay_GetMs();
 
     /* 丢掉停车期间攒下的增量：否则下次起步第一拍会读到一个巨大的假速度，
      * 「速度突变」会让 PI 直接给出反向输出，车会先顿一下。 */
@@ -164,28 +182,51 @@ void SpeedLoop_Update(int16_t target_left_per_mille, int16_t target_right_per_mi
 
     s_div_count = 0U;
 
-    /* 编码器 -> 速度。符号：本车「左轮前进时计数为正、右轮前进时计数为负」，
-     * 而我们的速度约定是「正 = 后退」，所以左轮取反、右轮取正。
-     * 这两个符号是实机测出来的（C-04），换电机/换接线后要重新确认。 */
-    s_left.meas = (float)s_acc_left * (float)CHASSIS_SPEED_SIGN_LEFT * SPEED_PER_COUNT;
-    s_right.meas = (float)s_acc_right * (float)CHASSIS_SPEED_SIGN_RIGHT * SPEED_PER_COUNT;
+    /* 真实 dt：从上一个 PI 窗口到现在实际过了多久（ms）。
+     * 主循环里 OLED 刷屏、sprintf 都会把某一拍拉长，用名义的 20 ms 会把
+     * 这段时间内的计数当成「20 ms 走完的」——测速直接偏高 1.5~2 倍，
+     * PI 于是以为车已经跑快了，把占空比砍下去；下一窗口又恢复正常……
+     * 结果就是车「忽快忽慢」。夹在 5~100 ms 之间，防止计时器异常。 */
+    {
+        uint32_t now_ms = Delay_GetMs();
+        uint32_t elapsed_ms = (uint32_t)(now_ms - s_last_pi_ms);
+        float dt_s = (float)elapsed_ms / 1000.0f;
 
-    /* 合理性限制：编码器被打到 / 线虚接时可能读出离谱的计数，
-     * 直接当成「轮子在飞」，PI 会立刻反向打满。超限就当没有读数（用 0），
-     * 这样即使偶发一次也不会把输出带飞。 */
-    s_left.meas = SpeedLoop_ClampF(s_left.meas,
-                                   -CHASSIS_SPEED_MEAS_MAX, CHASSIS_SPEED_MEAS_MAX);
-    s_right.meas = SpeedLoop_ClampF(s_right.meas,
-                                    -CHASSIS_SPEED_MEAS_MAX, CHASSIS_SPEED_MEAS_MAX);
+        if (dt_s < 0.005f) {
+            dt_s = 0.005f;
+        } else if (dt_s > 0.1f) {
+            dt_s = 0.1f;
+        }
 
-    s_acc_left = 0;
-    s_acc_right = 0;
+        s_last_pi_ms = now_ms;
 
-    target_left = (float)target_left_per_mille;
-    target_right = (float)target_right_per_mille;
+        /* 编码器 -> 速度。
+         * 符号：本车「左轮前进时计数为正、右轮前进时计数为负」，而我们的速度
+         * 约定是「正 = 后退」，所以左轮取反、右轮取正。这两个符号是实机测出来
+         * 的（C-04），换电机/换接线后要重新确认。 */
+        {
+            const float speed_per_count = SPEED_PER_COUNT_AT(dt_s);
 
-    SpeedLoop_Step(&s_left, target_left);
-    SpeedLoop_Step(&s_right, target_right);
+            s_left.meas = (float)s_acc_left * (float)CHASSIS_SPEED_SIGN_LEFT * speed_per_count;
+            s_right.meas = (float)s_acc_right * (float)CHASSIS_SPEED_SIGN_RIGHT * speed_per_count;
+        }
+
+        /* 合理性限制：编码器被打到 / 线虚接时可能读出离谱的计数，
+         * 直接当成「轮子在飞」，PI 会立刻反向打满。超限就夹住。 */
+        s_left.meas = SpeedLoop_ClampF(s_left.meas,
+                                       -CHASSIS_SPEED_MEAS_MAX, CHASSIS_SPEED_MEAS_MAX);
+        s_right.meas = SpeedLoop_ClampF(s_right.meas,
+                                        -CHASSIS_SPEED_MEAS_MAX, CHASSIS_SPEED_MEAS_MAX);
+
+        s_acc_left = 0;
+        s_acc_right = 0;
+
+        target_left = (float)target_left_per_mille;
+        target_right = (float)target_right_per_mille;
+
+        SpeedLoop_Step(&s_left, target_left, dt_s);
+        SpeedLoop_Step(&s_right, target_right, dt_s);
+    }
 
     if (duty_left_per_mille != NULL) {
         *duty_left_per_mille = SpeedLoop_ToI16(s_left.duty);

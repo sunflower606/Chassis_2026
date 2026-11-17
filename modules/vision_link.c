@@ -58,6 +58,7 @@ void VisionLink_Init(void)
     s_link.offset_x = 0;
     s_link.distance_cm = 0U;
     s_link.detected = 0U;
+    s_link.command = 0U;
     s_link.fresh = 0U;
     s_link.frame_count = 0U;
     s_link.checksum_error_count = 0U;
@@ -135,6 +136,9 @@ void VisionLink_Poll(void)
         s_link.offset_x = VisionLink_ReadInt16Be(&raw[6]);
         s_link.distance_cm = VisionLink_ReadUint16Be(&raw[8]);
         s_link.detected = ((raw[10] & LINK_FLAG_DETECTED) != 0U) ? 1U : 0U;
+        /* 蓝牙命令码：云台板原样透传，这里只存不判，具体动作交给 chassis_task
+         * （那里做边沿检测，同一个命令连发多帧也只执行一次）。 */
+        s_link.command = raw[11];
         s_link.frame_count++;
         s_link.last_ms = Delay_GetMs();
     }
@@ -158,6 +162,11 @@ VisionLink_t VisionLink_Get(void)
 int16_t VisionLink_GetYawDevTenthDeg(void)
 {
     return s_link.yaw_dev_tenth_deg;
+}
+
+uint8_t VisionLink_GetCommand(void)
+{
+    return s_link.command;
 }
 
 int16_t VisionLink_GetOffsetX(void)

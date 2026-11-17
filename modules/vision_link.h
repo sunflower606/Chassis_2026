@@ -20,7 +20,9 @@
  *   6-7    offset_x            int16，画面偏差 -100~+100（诊断用）
  *   8-9    distance_cm         uint16，0 = 未知（预留）
  *   10     flags               uint8，bit0 = 检测到人
- *   11     reserved            uint8
+ *   11     command             uint8，0 = 无命令 / 1 = mode1 / 2 = mode2 / 3 = stop
+ *                               （手机经蓝牙发到云台板的文本命令，云台板解析后
+ *                                 借这个字节下发；原来是保留位，长度不变）
  *   12     checksum            uint8，前 12 字节异或
  *
  * 解析策略与 K230 解析器相同：滑窗找帧头、失配只前进 1 字节、
@@ -35,6 +37,7 @@ typedef struct {
     int16_t offset_x;           /* 画面水平偏差，-100 ~ +100（诊断用） */
     uint16_t distance_cm;       /* 距离，单位 cm；0 = 未知 */
     uint8_t detected;           /* 1 = 对端报告检测到人 */
+    uint8_t command;            /* 0 = 无命令；1/2/3 = mode1/mode2/stop */
     uint8_t fresh;              /* 1 = 有人且数据未超时（可直接用于控制） */
     uint32_t frame_count;       /* 校验通过的帧数 */
     uint32_t checksum_error_count;
@@ -58,6 +61,9 @@ int16_t VisionLink_GetOffsetX(void);
 
 /** @return 距离，单位 cm；0 表示未知。 */
 uint16_t VisionLink_GetDistanceCm(void);
+
+/** @return 云台板转发来的蓝牙命令码：0 = 无命令，1 = mode1，2 = mode2，3 = stop。 */
+uint8_t VisionLink_GetCommand(void);
 
 /** @return 1 = 有人且数据新鲜，可用于控制；0 = 不可用。 */
 uint8_t VisionLink_IsFresh(void);

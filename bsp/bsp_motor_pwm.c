@@ -88,32 +88,29 @@ void BSP_Motor_Init(void)
     BSP_Motor_Stop();
 }
 
+/* ============================================================================
+ * ⚠️ 通道交叉（2026-11-17 实测确认，问题记录 C-24）
+ *
+ * 硬件实测：TB6612 的 A 通道（PWMA/AIN1/AIN2）实际接的是**右**电机，
+ *           B 通道（PWMB/BIN1/BIN2）实际接的是**左**电机；
+ * 而编码器 TIM2 在左轮、TIM4 在右轮，侧别是对的。
+ *
+ * 也就是说，若按字面「SetLeft 用 A 通道」去写，速度环的两个轮子会互相
+ * 被对手驱动 —— 左环调右轮、右环调左轮，形成正反馈：
+ *   左环看到「太快」→ 压到最小占空比，实际把右轮调慢；
+ *   右环看到「太慢」→ 顶到最大占空比，实际把左轮调快。
+ * 现象就是左右严重不对称、读数与占空比不单调、sp 与 out 反号。
+ *
+ * 接线无法更改，因此在 BSP 层做一次「换通道」（不改接口语义）：
+ *   BSP_Motor_SetLeft()  -> 驱动 B 通道（PWMB / BIN1 / BIN2 / CH2）
+ *   BSP_Motor_SetRight() -> 驱动 A 通道（PWMA / AIN1 / AIN2 / CH1）
+ * 上层（motor_driver / speed_loop / chassis_task）看到的仍是「左轮 / 右轮」，
+ * 不需要任何改动。
+ *
+ * 如果以后重新接线把 A 通道接回左电机，把这两个函数里的宏与通道换回来即可。
+ * ========================================================================== */
+
 void BSP_Motor_SetLeft(int16_t speed_per_mille)
-{
-    int16_t speed = BSP_Motor_Clamp(speed_per_mille);
-    uint16_t duty;
-
-    if (speed > 0) {
-        /* A 通道正转：AIN1 高、AIN2 低 */
-        GPIO_WriteBit(BOARD_TB6612_AIN1_GPIO, BOARD_TB6612_AIN1_PIN, Bit_SET);
-        GPIO_WriteBit(BOARD_TB6612_AIN2_GPIO, BOARD_TB6612_AIN2_PIN, Bit_RESET);
-        duty = (uint16_t)speed;
-    } else if (speed < 0) {
-        /* A 通道反转：AIN1 低、AIN2 高 */
-        GPIO_WriteBit(BOARD_TB6612_AIN1_GPIO, BOARD_TB6612_AIN1_PIN, Bit_RESET);
-        GPIO_WriteBit(BOARD_TB6612_AIN2_GPIO, BOARD_TB6612_AIN2_PIN, Bit_SET);
-        duty = (uint16_t)(-speed);
-    } else {
-        /* 滑行：两脚同低，H 桥关断 */
-        GPIO_WriteBit(BOARD_TB6612_AIN1_GPIO, BOARD_TB6612_AIN1_PIN, Bit_RESET);
-        GPIO_WriteBit(BOARD_TB6612_AIN2_GPIO, BOARD_TB6612_AIN2_PIN, Bit_RESET);
-        duty = 0U;
-    }
-
-    TIM_SetCompare1(BOARD_MOTOR_TIM, duty);
-}
-
-void BSP_Motor_SetRight(int16_t speed_per_mille)
 {
     int16_t speed = BSP_Motor_Clamp(speed_per_mille);
     uint16_t duty;
@@ -124,16 +121,41 @@ void BSP_Motor_SetRight(int16_t speed_per_mille)
         GPIO_WriteBit(BOARD_TB6612_BIN2_GPIO, BOARD_TB6612_BIN2_PIN, Bit_RESET);
         duty = (uint16_t)speed;
     } else if (speed < 0) {
+        /* B 通道反转：BIN1 低、BIN2 高 */
         GPIO_WriteBit(BOARD_TB6612_BIN1_GPIO, BOARD_TB6612_BIN1_PIN, Bit_RESET);
         GPIO_WriteBit(BOARD_TB6612_BIN2_GPIO, BOARD_TB6612_BIN2_PIN, Bit_SET);
         duty = (uint16_t)(-speed);
     } else {
+        /* 滑行：两脚同低，H 桥关断 */
         GPIO_WriteBit(BOARD_TB6612_BIN1_GPIO, BOARD_TB6612_BIN1_PIN, Bit_RESET);
         GPIO_WriteBit(BOARD_TB6612_BIN2_GPIO, BOARD_TB6612_BIN2_PIN, Bit_RESET);
         duty = 0U;
     }
 
     TIM_SetCompare2(BOARD_MOTOR_TIM, duty);
+}
+
+void BSP_Motor_SetRight(int16_t speed_per_mille)
+{
+    int16_t speed = BSP_Motor_Clamp(speed_per_mille);
+    uint16_t duty;
+
+    if (speed > 0) {
+        /* A 通道正转：AIN1 高、AIN2 低 */
+        GPIO_WriteBit(BOARD_TB6612_AIN1_GPIO, BOARD_TB6612_AIN1_PIN, Bit_SET);
+        GPIO_WriteBit(BOARD_TB6612_AIN2_GPIO, BOARD_TB6612_AIN2_PIN, Bit_RESET);
+        duty = (uint16_t)speed;
+    } else if (speed < 0) {
+        GPIO_WriteBit(BOARD_TB6612_AIN1_GPIO, BOARD_TB6612_AIN1_PIN, Bit_RESET);
+        GPIO_WriteBit(BOARD_TB6612_AIN2_GPIO, BOARD_TB6612_AIN2_PIN, Bit_SET);
+        duty = (uint16_t)(-speed);
+    } else {
+        GPIO_WriteBit(BOARD_TB6612_AIN1_GPIO, BOARD_TB6612_AIN1_PIN, Bit_RESET);
+        GPIO_WriteBit(BOARD_TB6612_AIN2_GPIO, BOARD_TB6612_AIN2_PIN, Bit_RESET);
+        duty = 0U;
+    }
+
+    TIM_SetCompare1(BOARD_MOTOR_TIM, duty);
 }
 
 void BSP_Motor_Stop(void)
