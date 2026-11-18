@@ -2,99 +2,153 @@
 #include "Delay.h"
 
 /* ============================================================================
- * 毫秒时基
+ * 毫秒时基（2026-11-18 重写：改成真正的 1 ms 中断）
  *
- * 【为什么放在这里】
+ * 【以前错在哪】
  *
- * 原来的做法是：主循环每轮读一次 SysTick->VAL，用先后读数之差累加毫秒。
- * 但 Delay_us() 每次都会重装 SysTick 并清零计数器：
+ * 老做法是让 Delay_us() 每次自己重装 SysTick：
  *
  *      SysTick->LOAD = 72 * xus;
- *      SysTick->VAL  = 0x00;      <-- 清零
+ *      SysTick->VAL  = 0x00;        <-- 清零
  *      ...
- *      SysTick->CTRL = 0x00000004;  <-- 关闭（计数停在重装值附近）
+ *      SysTick->CTRL = 0x00000004;  <-- 关掉
  *
- * 所以每一轮结束时读到的 VAL 几乎一样（都在 ~72000 附近），
- * 差值恒为 0 -> 毫秒时钟只在上电后跳一次，之后永远不动。
+ * 于是「毫秒数」只能靠 Delay_us 自己记账（把每次延掉的微秒累加）。
+ * 结果：主循环里除 Delay 之外的时间（写 OLED、解析串口、跑 PID）全部不漏算，
+ * 时钟整体偏慢 —— 实测偏低 6%~10%。
  *
- * 结果就是 Vision_IsTargetFresh() 的 300ms 超时判断恒成立：
- * K230 断线/死机时云台不会判"丢失"，会继续用最后的坐标。
+ * 这不只是「时间显示不准」：
+ *   - CHASSIS_LINK_TIMEOUT_MS(500 ms) 实际变成 530~550 ms；
+ *   - 距离保持 1500 ms、搜索 5 s、暂停 800 ms 全部按同比例拉长；
+ *   - 最要命的是速度环用 Delay_GetMs() 算 dt：dt 偏小 -> 同样的编码器计数
+ *     被算成更大的速度 -> 测速系统性偏高，PI 长期在压着跑。
  *
  * 【现在的做法】
  *
- * 既然 Delay_us 自己知道"这次延了多久"，就在它内部直接记账，
- * 不再去猜 SysTick 的当前值。延时行为本身完全没变，只在末尾多了几行累加。
+ *   SysTick 改成真正的 1 ms 周期中断（72000 个 HCLK），只负责 s_tick_ms++；
+ *   Delay_us() 不再重装 SysTick，而是读 SysTick->VAL 的差值做微秒等待。
+ *   这样 CPU 时间与真实时间一一对应，所有超时/速度都回到标称值。
+ *
+ * 【为什么不用 TIM6】
+ *
+ *   STM32F103C8 是中等容量型号，只有 TIM1~TIM4，没有 TIM6/TIM7
+ *   （启动文件的向量表里到 USART3 / EXTI15_10 / RTCAlarm / USBWakeUp 就结束了）。
+ *   而 TIM1~TIM4 已经全被占用（TIM1 超声时基、TIM2/TIM4 编码器、TIM3 电机 PWM），
+ *   所以只能用 SysTick。
  *
  * 【精度】
  *
- * 只统计 Delay_* 花掉的时间。主循环里其他阻塞（每 100ms 刷一次 OLED、
- * 每 500ms 打一次串口）不计入，实测平均偏低约 6%。
- * 对"300ms 没收到数据就判丢失"这种用途完全够用。
+ *   微秒等待按 SysTick->VAL 计数，1 个计数 = 1/72 us ≈ 13.9 ns，
+ *   单次等待误差在 1~2 个计数以内，够 HC-SR04 的 10 us 触发脉冲用。
  * ========================================================================== */
 
-/* 已累计的毫秒数 */
-static volatile uint32_t s_tick_ms = 0;
+/* SysTick 重装值：72 MHz / 1000 = 1 ms */
+#define DELAY_SYSTICK_RELOAD   (72000UL - 1UL)
 
-/* 不足 1ms 的零头（微秒），攒够 1000 就进位 */
-static uint32_t s_us_pending = 0;
+/* 上电以来的毫秒数（SysTick 中断里自增） */
+static volatile uint32_t s_tick_ms = 0U;
 
+/* 1 = Delay_Init() 已经跑过 */
+static uint8_t s_ready = 0U;
+
+/**
+  * @brief  SysTick 中断：1 ms 一次，只做计数
+  */
+void SysTick_Handler(void)
+{
+    s_tick_ms++;
+}
+
+/**
+  * @brief  启动毫秒时基（可重复调用，只有第一次生效）
+  * @note   必须在第一次 Delay_us/Delay_GetMs 之前调用；
+  *         没调用也会被 Delay_us() 自动补上。
+  */
+void Delay_Init(void)
+{
+    if (s_ready != 0U) {
+        return;
+    }
+
+    SysTick->LOAD = DELAY_SYSTICK_RELOAD;
+    SysTick->VAL  = 0U;
+    /* bit2 CLKSOURCE=1(HCLK) | bit1 TICKINT=1 | bit0 ENABLE=1 */
+    SysTick->CTRL = 0x00000007UL;
+
+    s_ready = 1U;
+}
+
+/**
+  * @brief  等若干个 SysTick 计数（72 个计数 = 1 us）
+  * @note   SysTick 自由运行、会自动重装，所以这里用「差值累加」的方式，
+  *         跨过重装点也不会算错；单次等待长度不受 1 ms 限制。
+  */
+static void Delay_WaitTicks(uint32_t ticks)
+{
+    const uint32_t span = DELAY_SYSTICK_RELOAD + 1UL;   /* 一个完整周期的计数 */
+    uint32_t last = SysTick->VAL;
+    uint32_t elapsed = 0U;
+
+    while (elapsed < ticks) {
+        uint32_t now = SysTick->VAL;
+
+        if (now <= last) {
+            elapsed += (last - now);                    /* 本周期内正常倒数 */
+        } else {
+            elapsed += (last + (span - now));           /* 跨过 0，回绕到重装值 */
+        }
+
+        last = now;
+    }
+}
 
 /**
   * @brief  微秒级延时
-  * @param  xus 延时时长，范围：0~233015
+  * @param  xus 延时时长（us）
   * @retval 无
   */
 void Delay_us(uint32_t xus)
 {
-	SysTick->LOAD = 72 * xus;				//设置定时器重装值
-	SysTick->VAL = 0x00;					//清空当前计数值
-	SysTick->CTRL = 0x00000005;				//设置时钟源为HCLK，启动定时器
-	while(!(SysTick->CTRL & 0x00010000));	//等待计数到0
-	SysTick->CTRL = 0x00000004;				//关闭定时器
+    if (s_ready == 0U) {
+        Delay_Init();
+    }
 
-	/* ---- 记账：把这次延掉的微秒累加进毫秒时基 ----
-	 * 这几行放在延时之后，不影响延时长度本身
-	 * （10ms 的延时总共 720000 个周期，这几条指令约几十个周期，可忽略）。 */
-	s_us_pending += xus;
-	if (s_us_pending >= 1000u)
-	{
-		s_tick_ms   += s_us_pending / 1000u;
-		s_us_pending %= 1000u;
-	}
+    Delay_WaitTicks(xus * 72UL);
 }
 
 /**
   * @brief  毫秒级延时
-  * @param  xms 延时时长，范围：0~4294967295
+  * @param  xms 延时时长（ms）
   * @retval 无
   */
 void Delay_ms(uint32_t xms)
 {
-	while(xms--)
-	{
-		Delay_us(1000);
-	}
+    while (xms--) {
+        Delay_us(1000U);
+    }
 }
- 
+
 /**
   * @brief  秒级延时
-  * @param  xs 延时时长，范围：0~4294967295
+  * @param  xs 延时时长（s）
   * @retval 无
   */
 void Delay_s(uint32_t xs)
 {
-	while(xs--)
-	{
-		Delay_ms(1000);
-	}
-} 
+    while (xs--) {
+        Delay_ms(1000U);
+    }
+}
 
 /**
-  * @brief  取上电以来经过的毫秒数
+  * @brief  取上电以来经过的真实毫秒数
   * @retval 毫秒数（uint32_t，约 49.7 天回绕）
-  * @note   由 Delay_us() 内部累加，不依赖 SysTick->VAL 的差值
   */
 uint32_t Delay_GetMs(void)
 {
-	return s_tick_ms;
+    if (s_ready == 0U) {
+        Delay_Init();
+    }
+
+    return s_tick_ms;
 }

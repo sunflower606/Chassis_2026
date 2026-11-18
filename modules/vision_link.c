@@ -149,6 +149,10 @@ void VisionLink_Poll(void)
         s_link.fresh = 0U;
     } else if ((uint32_t)(Delay_GetMs() - s_link.last_ms) > CHASSIS_LINK_TIMEOUT_MS) {
         s_link.fresh = 0U;
+        /* 审计 B3：超时后把命令码清 0。
+         * 否则断链前最后一条命令（比如 3=stop）会一直留在 command 里，
+         * 重连时底盘看到的「上一条命令」还是 3，边沿检测就把这次重发当成「没变化」吞掉。 */
+        s_link.command = 0U;
     } else {
         s_link.fresh = 1U;
     }

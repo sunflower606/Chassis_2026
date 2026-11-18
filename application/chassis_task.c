@@ -209,6 +209,12 @@ static void ChassisTask_EnterSearch(void)
         /* 偏角太小或没有历史：保留上一次的 s_search_dir（初值 +1） */
     }
 
+    /* 转向低通状态清零（审计 ①）：搜索/暂停期间 steer 由状态机直接给出、
+     * 不更新 s_steer_filt，所以它会一直停在「进搜索前」的旧值上。
+     * 不清零的话，重新看到人后的第一拍低通会从那个旧值开始衰减，
+     * 表现为车头不自然地摆一下。 */
+    s_steer_filt = 0;
+
     s_search_rounds = 0U;
     s_search_phase_ms = 0U;
     s_search_prev_state = CHASSIS_SEARCH_IDLE;
@@ -280,14 +286,53 @@ static int32_t ChassisTask_UpdateSearchState(void)
  *    这里保持停车，不做任何驱动。判线实现在 modules/line_sensor.c。 */
 static void ChassisTask_UpdateLineTrack(void)
 {
-    /* TODO(循迹实现时)：
-     *   1) 若 LineSensor 报告脱线 -> Motor_SetSpeed(0, 0) 并原地等待；
-     *   2) 否则按线位置计算差速（注意左右轮方向的实测验证）；
-     *   3) 输出必须限幅，并依赖 Motor_SetSpeed 内部的斜率限制。
-     *
-     * 现在：保持停车。 */
-    ChassisTask_SetBranch(0U);
-    Motor_SetSpeed(0, 0);
+    LineSensor_t line = LineSensor_Get();
+    int32_t steer;
+    int32_t forward;
+    int32_t left;
+    int32_t right;
+
+    /* 1) 脱线：停车等待，不盲目前冲（要求「不冲出赛道」）。
+     *    lost 已经自带 CHASSIS_LINE_LOST_COUNT(20 拍 = 100 ms) 的确认，
+     *    所以偶尔一两拍看不到线不会导致一顿一停。 */
+    if (line.lost != 0U) {
+        ChassisTask_SetBranch(11U);
+        Motor_SetSpeed(0, 0);
+        return;
+    }
+
+    /* 2) 线位置 -> 差速。position：-100（最左）~ +100（最右），0 = 线在正中。
+     *    「线在右边」= 车偏左了 = 车得往右拐。 */
+    steer = ((int32_t)line.position * CHASSIS_LINE_STEER_GAIN) / 100;
+    steer *= CHASSIS_LINE_STEER_SIGN;
+
+    if (steer > CHASSIS_LINE_STEER_MAX) {
+        steer = CHASSIS_LINE_STEER_MAX;
+    } else if (steer < -CHASSIS_LINE_STEER_MAX) {
+        steer = -CHASSIS_LINE_STEER_MAX;
+    }
+
+    /* 3) 前进量取负：本车 Motor_SetSpeed() 负值 = 前进（与模式 2 同一套极性） */
+    forward = -(int32_t)CHASSIS_LINE_BASE_SPEED;
+
+    /* 4) 差速合成：与模式 2 同一套约定 —— 左减右加，
+     *    steer 为正时左轮更偏前进，车头向右转。 */
+    left = forward - steer;
+    right = forward + steer;
+
+    if (left > (int32_t)CHASSIS_MOTOR_DUTY_MAX) {
+        left = (int32_t)CHASSIS_MOTOR_DUTY_MAX;
+    } else if (left < -(int32_t)CHASSIS_MOTOR_DUTY_MAX) {
+        left = -(int32_t)CHASSIS_MOTOR_DUTY_MAX;
+    }
+    if (right > (int32_t)CHASSIS_MOTOR_DUTY_MAX) {
+        right = (int32_t)CHASSIS_MOTOR_DUTY_MAX;
+    } else if (right < -(int32_t)CHASSIS_MOTOR_DUTY_MAX) {
+        right = -(int32_t)CHASSIS_MOTOR_DUTY_MAX;
+    }
+
+    ChassisTask_SetBranch(12U);
+    Motor_SetSpeed((int16_t)left, (int16_t)right);
 }
 
 /* 模式 2：纯人体跟随
@@ -391,8 +436,10 @@ static void ChassisTask_UpdateFollow(void)
     /* ---------- 3. 有人：正常跟随 ---------- */
     if (link.fresh != 0U) {
         /* 搜索态已在上面的 STOP 分支处理；这里通常本来就是非搜索态。
-         * 保留一次清零，防止任何漏掉的路径把旧搜索计时带进跟随。 */
-        ChassisTask_ResetSearch();
+         * 只在真的还挂着搜索状态时才清，避免跟随中每拍白跑一次（审计 B2）。 */
+        if (s_search_state != CHASSIS_SEARCH_IDLE) {
+            ChassisTask_ResetSearch();
+        }
         dev_f = ChassisTask_FilterDev((int32_t)link.yaw_dev_tenth_deg);
         s_last_dev_tenth = (int16_t)dev_f;
 
@@ -700,7 +747,7 @@ static void ChassisTask_PollRemoteCommand(void)
  *   2. 每拍限量：主循环每一拍最多吐出 OLED_DIFF_PER_TICK 个字符，
  *      单拍最坏阻塞从 21 ms 降到约 2 ms，其余拍完全不受影响。
  * ------------------------------------------------------------------------- */
-#define OLED_DIFF_PER_TICK    6U
+#define OLED_DIFF_PER_TICK    3U
 #define OLED_DIFF_QUEUE_MAX   (4U * 16U)
 
 typedef struct {
@@ -718,6 +765,23 @@ static uint8_t s_oled_queue_head = 0U;
  * 它的用途是验证「削峰到底有没有生效」：改之前撞上刷屏那一拍会是 20 ms 以上，
  * 改之后应该稳定在个位数。 */
 static uint32_t s_loop_max_ms = 0U;
+
+/* 上面那个最大值出现在第几段（定位卡顿用）。
+ *   1=链路解析 2=超声波 3=循迹采样 4=按键 5=蓝牙命令 6=显示 7=控制律 8=串口回传 */
+static uint8_t s_loop_max_stage = 0U;
+static uint8_t s_oled_chars_max = 0U;      /* 过去 1 s 内单拍最多写了几个 OLED 字符 */
+
+/* 记录「从本拍开始到现在」的累计耗时，并把最慢的那一段记下来。
+ * 只是读一个变量，单次成本 1 us 量级，可以每段都调用。 */
+static void ChassisTask_MarkStage(uint8_t stage, uint32_t now_ms)
+{
+    uint32_t spent_ms = Delay_GetMs() - now_ms;
+
+    if (spent_ms > s_loop_max_ms) {
+        s_loop_max_ms = spent_ms;
+        s_loop_max_stage = stage;
+    }
+}
 
 static void ChassisTask_ShowPaddedLine(uint8_t line, const char *text)
 {
@@ -759,6 +823,7 @@ static void ChassisTask_ShowPaddedLine(uint8_t line, const char *text)
 static void ChassisTask_FlushDisplay(void)
 {
     uint8_t n;
+    uint8_t written = 0U;
 
     for (n = 0U; n < OLED_DIFF_PER_TICK; n++) {
         ChassisOledCell_t cell;
@@ -772,6 +837,10 @@ static void ChassisTask_FlushDisplay(void)
         s_oled_queue_count--;
 
         OLED_ShowChar(cell.line, cell.column, cell.ch);
+        written++;
+    }
+    if (written > s_oled_chars_max) {
+        s_oled_chars_max = written;
     }
 }
 
@@ -821,15 +890,15 @@ static void ChassisTask_RefreshDisplay(void)
         /* 云台 yaw 偏角，按整度显示（内部是 0.1 度） */
         int16_t dev_deg = (int16_t)(VisionLink_GetYawDevTenthDeg() / 10);
 
-        (void)sprintf(text, "Dev:%+04d", (int)dev_deg);
+        (void)snprintf(text, sizeof(text), "Dev:%+04d", (int)dev_deg);
         ChassisTask_ShowPaddedLine(2U, text);
     }
 
     /* ---------- 第 3 行：超声波距离 ---------- */
     if (DistanceSensor_IsValid() != 0U) {
-        (void)sprintf(text, "Dist:%03ucm", (unsigned)DistanceSensor_GetCm());
+        (void)snprintf(text, sizeof(text), "Dist:%03ucm", (unsigned)DistanceSensor_GetCm());
     } else {
-        (void)sprintf(text, "Dist:---cm");
+        (void)snprintf(text, sizeof(text), "Dist:---cm");
     }
     ChassisTask_ShowPaddedLine(3U, text);
 
@@ -847,6 +916,9 @@ static void ChassisTask_RefreshDisplay(void)
 void ChassisTask_Init(void)
 {
     uint32_t now_ms;
+
+    /* 0) 1 ms 时基：所有超时、dage、速度环 dt 都依赖它，必须最先起来 */
+    Delay_Init();
 
     /* 1) 电机先初始化：BSP 末尾会让电机滑行，确保上电不动 */
     Motor_Init();
@@ -876,6 +948,10 @@ void ChassisTask_Init(void)
     s_key_last_raw = BSP_Key_IsDown(BSP_KEY_MODE);
     s_key_stable_down = 0U;
     s_mode = CHASSIS_MODE_LINE_TRACK;
+    /* 上电默认进入 STOP：整车不上电就走。必须用手机发 mode1 / mode2 解锁，
+     * 或按一下模式按键（按键会清掉 stop 并切换模式）。
+     * 理由：上电瞬间云台还没对准、链路还没建立，先停住最安全。 */
+    s_remote_stop = 1U;
     ChassisTask_ResetFollowState();
 
     /* P0 观测量的初值：统计窗口从「现在」开始，
@@ -900,18 +976,23 @@ void ChassisTask_Loop(void)
 
     /* ---------- 1. 双板链路解析 ---------- */
     VisionLink_Poll();
+    ChassisTask_MarkStage(1U, now_ms);
 
     /* ---------- 2. 超声波（内部按 60 ms 节流触发） ---------- */
     DistanceSensor_Poll();
+    ChassisTask_MarkStage(2U, now_ms);
 
     /* ---------- 3. 循迹采样 ---------- */
     LineSensor_Update();
+    ChassisTask_MarkStage(3U, now_ms);
 
     /* ---------- 4. 按键消抖与模式切换 ---------- */
     ChassisTask_PollKey(now_ms);
+    ChassisTask_MarkStage(4U, now_ms);
 
     /* ---------- 4.5 蓝牙命令（mode1 / mode2 / stop） ---------- */
     ChassisTask_PollRemoteCommand();
+    ChassisTask_MarkStage(5U, now_ms);
 
     /* ---------- 5. 按模式分派 ---------- */
     if (s_remote_stop != 0U) {
@@ -934,6 +1015,7 @@ void ChassisTask_Loop(void)
             break;
         }
     }
+    ChassisTask_MarkStage(7U, now_ms);
 
     /* ---------- 6. 显示（分片：组文本 100 ms 一次，写屏每拍一点点） ---------- */
     if ((uint32_t)(now_ms - s_last_display_ms) >= CHASSIS_DISPLAY_PERIOD_MS) {
@@ -941,10 +1023,11 @@ void ChassisTask_Loop(void)
         ChassisTask_RefreshDisplay();       /* 只组文本 + 压差异队列，不碰 I2C */
     }
     ChassisTask_FlushDisplay();             /* 每拍最多 6 个字符 */
+    ChassisTask_MarkStage(6U, now_ms);
 
     /* ---------- 7. 节流串口回传 ---------- */
     if ((uint32_t)(now_ms - s_last_debug_ms) >= CHASSIS_DEBUG_PERIOD_MS) {
-        char text[200];
+        char text[224];
         LineSensor_t line = LineSensor_Get();
         DistanceSensor_t dist = DistanceSensor_Get();
         int16_t sp_left = Motor_GetLeftSpeed();
@@ -976,11 +1059,12 @@ void ChassisTask_Loop(void)
         /* 用 snprintf 而不是 sprintf：这一行字段多，极端情况下（全是最长数值）
          * 可能超出缓冲，sprintf 会直接越界踩栈。 */
         (void)snprintf(text, sizeof(text),
-                      "C: mode=%d raw=%02X lost=%d out=%d/%d dev=%d link=%d "
+                      "C: mode=%d raw=%02X pos=%+04d lost=%d out=%d/%d dev=%d link=%d "
                       "dist=%u/%u us=%u sp=%d/%d err=%lu srch=%d "
-                      "st=%u sw=%u dage=%u oled=%u lp=%u eL=%d eR=%d\r\n",
+                      "st=%u sw=%u dage=%u oled=%u lp=%u/%u oc=%u eL=%d eR=%d\r\n",
                       (int)s_mode,
                       (unsigned)line.raw_levels,
+                      (int)line.position,
                       (int)line.lost,
                       (int)Motor_GetLeftOutput(),
                       (int)Motor_GetRightOutput(),
@@ -998,19 +1082,18 @@ void ChassisTask_Loop(void)
                       dage_ms,
                       (unsigned)OLED_IsPresent(),
                       (unsigned)s_loop_max_ms,
+                      (unsigned)s_loop_max_stage,
+                      (unsigned)s_oled_chars_max,
                       (int)ec_left,
                       (int)ec_right);
         s_loop_max_ms = 0U;             /* 每个窗口重新取最大值 */
+        s_loop_max_stage = 0U;          /* 段号一起清零，否则一直停在上一条 */
+        s_oled_chars_max = 0U;          /* 上一秒的 OLED 字符峰值已打印，重新统计 */
         BSP_UART_SendString(text);
     }
 
     /* 记录本拍耗时：串口行里的 lp= 就是它过去 1 s 的最大值 */
-    {
-        uint32_t spent_ms = Delay_GetMs() - now_ms;
-        if (spent_ms > s_loop_max_ms) {
-            s_loop_max_ms = spent_ms;
-        }
-    }
+    ChassisTask_MarkStage(8U, now_ms);
 }
 
 ChassisMode_t ChassisTask_GetMode(void)

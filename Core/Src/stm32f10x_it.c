@@ -132,9 +132,8 @@ void PendSV_Handler(void)
   * @param  None
   * @retval None
   */
-void SysTick_Handler(void)
-{
-}
+/* SysTick 中断已改到 System/Delay.c 实现（1 ms 时基），
+ * 这里不能再定义，否则链接期报 multiple definition。 */
 
 /******************************************************************************/
 /*                 STM32F10x Peripherals Interrupt Handlers                   */

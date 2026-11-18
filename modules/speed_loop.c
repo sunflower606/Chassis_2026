@@ -1,6 +1,5 @@
 #include "speed_loop.h"
 
-#include <math.h>
 #include <stddef.h>
 
 #include "bsp_encoder.h"
@@ -101,14 +100,28 @@ static void SpeedLoop_Step(SpeedLoopWheel_t *wheel, float target, float dt_s)
         /* 未饱和，正常 */
     }
 
-    /* 静摩擦补偿：占空比太小电机根本不转，PI 会误以为「还没动」而把积分顶满。
-     * 有目标就至少给 CHASSIS_SPEED_MIN_DUTY，保证轮子真的动起来。 */
-    if ((wheel->duty > 0.0f) && (wheel->duty < (float)CHASSIS_SPEED_MIN_DUTY)) {
-        wheel->duty = (float)CHASSIS_SPEED_MIN_DUTY;
-    } else if ((wheel->duty < 0.0f) && (wheel->duty > -(float)CHASSIS_SPEED_MIN_DUTY)) {
-        wheel->duty = -(float)CHASSIS_SPEED_MIN_DUTY;
-    } else {
-        /* 已经在死区外，不需要补 */
+    /* 静摩擦补偿（2026-11-18 修正，审计 ③）：
+     * 占空比太小电机根本不转，PI 会误以为「还没动」而把积分顶满，
+     * 所以要补一个最小启动占空比。
+     *
+     * ⚠️ 但只在「目标本身就不小于这个最小值」时才补：
+     * 以前是只要 duty 非零就一律补到 70，于是
+     *   forward=0、steer=40‰（偏角约 10 度）-> 两轮各 40 -> 被抬成 ±70，
+     * 转向速率直接涨到 1.75 倍，表现为「小偏角一上来就猛」。
+     * 现在小指令按原值给（轮子可能转不动，但那是真实的最小可动速度），
+     * 补偿只负责「打破静摩擦」，不再放大指令。 */
+    {
+        const float target_mag = (target >= 0.0f) ? target : -target;
+
+        if (target_mag >= (float)CHASSIS_SPEED_MIN_DUTY) {
+            if ((wheel->duty > 0.0f) && (wheel->duty < (float)CHASSIS_SPEED_MIN_DUTY)) {
+                wheel->duty = (float)CHASSIS_SPEED_MIN_DUTY;
+            } else if ((wheel->duty < 0.0f) && (wheel->duty > -(float)CHASSIS_SPEED_MIN_DUTY)) {
+                wheel->duty = -(float)CHASSIS_SPEED_MIN_DUTY;
+            } else {
+                /* 已经在死区外，不需要补 */
+            }
+        }
     }
 
     /* 速率限制：夹住「这一窗口相对上一窗口」的变化量。
