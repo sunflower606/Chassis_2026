@@ -130,7 +130,9 @@ static uint8_t s_dev_reject = 0U;            /* 连续被弃用的帧数 */
  * y[n] = y[n-1] + (x[n] - y[n-1]) × LPF_Q / 100
  * 阶跃变斜坡：α=0.35、5 ms 一拍 → τ≈14 ms、fc≈11 Hz。
  * 只压快变成分，稳态值不变；比 250~300 ms 的链路死时间小一个数量级。 */
-static int32_t s_steer_filt = 0;             /* 转向量低通状态（‰） */
+static int32_t s_steer_filt = 0;
+static int32_t s_steer_damp_dev = 0;     /* 上一拍的偏角，用来算变化率（阻尼项） */
+static uint32_t s_steer_damp_ms = 0U;    /* 上一拍的时刻，0 = 还没有历史 */
 
 /* 「距离无效但看到人」时沿用上一次有效的前进量（2026-11-17 加）
  * 原来固定 BASE_SPEED，从 350‰ 直接掉到 180‰，用户反馈「明显迟钝」。
@@ -194,6 +196,8 @@ static void ChassisTask_ResetFollowState(void)
     s_dev_init = 0U;
     s_dev_reject = 0U;
     s_steer_filt = 0;
+    s_steer_damp_dev = 0;
+    s_steer_damp_ms = 0U;
     s_forward_last = 0;
     s_dist_invalid_ms = 0U;
 }
@@ -214,6 +218,8 @@ static void ChassisTask_EnterSearch(void)
      * 不清零的话，重新看到人后的第一拍低通会从那个旧值开始衰减，
      * 表现为车头不自然地摆一下。 */
     s_steer_filt = 0;
+    s_steer_damp_dev = 0;
+    s_steer_damp_ms = 0U;
 
     s_search_rounds = 0U;
     s_search_phase_ms = 0U;
@@ -458,6 +464,35 @@ static void ChassisTask_UpdateFollow(void)
         /* 0.1 度 × (千分比/度) / 10 = 千分比 */
         steer = ((int32_t)dev_tenth * (int32_t)CHASSIS_FOLLOW_STEER_GAIN_Q) / 10;
         steer = steer * (int32_t)CHASSIS_FOLLOW_STEER_SIGN;
+
+        /* 阻尼项（D）：按「偏角变化率」反向施加一个量。
+         * 纯 P 时，车转过去的过程中 dev 一直在变小，但 P 只看当前 dev，
+         * 于是减速太晚 —— 实测 dev 从 +29.0° 翻到 -41.7° 还在冲。
+         * 这里用 (dev - 上一拍dev)/dt 得到底盘相对目标的角速度，
+         * 乘 KD 后叠加：正在快速靠近目标时它把转向量往回拉，等于提前刹车。
+         * 单位：KD 是 ‰/(度/秒)，rate 是 度/秒。 */
+        {
+            const uint32_t now_damp = Delay_GetMs();
+            uint32_t dt_ms = now_damp - s_steer_damp_ms;
+
+            if (dt_ms == 0U) {
+                dt_ms = 1U;
+            }
+            if (dt_ms > 100U) {
+                dt_ms = 100U;
+            }
+
+            if (s_steer_damp_ms != 0U) {
+                int32_t rate_dps = ((dev_f - s_steer_damp_dev) * 1000)
+                                 / ((int32_t)dt_ms * 10);
+                steer += (int32_t)CHASSIS_FOLLOW_STEER_KD
+                       * rate_dps
+                       * (int32_t)CHASSIS_FOLLOW_STEER_SIGN;
+            }
+
+            s_steer_damp_dev = dev_f;
+            s_steer_damp_ms = (now_damp == 0U) ? 1U : now_damp;
+        }
 
         /* 差速单独封顶：限制转向的快慢（不同于 duty_max 的总量限幅）。
          * 为什么必须单独限：转向靠左右轮反向形成，差速越大转越快；
