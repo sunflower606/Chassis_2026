@@ -12,6 +12,7 @@
 #include "line_sensor.h"
 #include "motor_driver.h"
 #include "oled.h"
+#include "params.h"
 #include "vision_link.h"
 
 /* STOP 的确认时间必须短于链路超时：否则「连续看到人」还没攒满，
@@ -25,6 +26,56 @@
 #error "CHASSIS_FOLLOW_BLIND_STEER must be <= CHASSIS_FOLLOW_STEER_MAX"
 #endif
 
+/* ============================================================================
+ * 在线调参：把宏名重定向到运行期参数表
+ *
+ * 为什么这么做：控制律里有十几处直接引用 CHASSIS_FOLLOW_* 宏。
+ * 如果逐处改成 Params_Get()，改动面大、容易漏、以后也不好对照文档。
+ * 这里在「编译期检查全部做完之后」把宏名重新定义为函数调用，
+ * 于是下面控制律代码一个字不改，读到的却是运行期值。
+ *
+ * 注意：
+ *   1) 必须放在上面两个 #if 之后 —— #if 里不能用函数调用；
+ *   2) 只重定向"现场要整定"的参数，安全相关的不在其中；
+ *   3) PARAM_LIVE = 0 时整块失效，等于回到纯宏模式（一键回滚）。
+ * ========================================================================== */
+#if (PARAM_LIVE != 0)
+#undef  CHASSIS_FOLLOW_STEER_GAIN_Q
+#define CHASSIS_FOLLOW_STEER_GAIN_Q           (Params_Get(PARAM_ID_SG))
+#undef  CHASSIS_FOLLOW_STEER_DEADBAND_TENTH_DEG
+#define CHASSIS_FOLLOW_STEER_DEADBAND_TENTH_DEG (Params_Get(PARAM_ID_SDB))
+#undef  CHASSIS_FOLLOW_STEER_MAX
+#define CHASSIS_FOLLOW_STEER_MAX              (Params_Get(PARAM_ID_SMAX))
+#undef  CHASSIS_FOLLOW_DISTANCE_GAIN_Q
+#define CHASSIS_FOLLOW_DISTANCE_GAIN_Q        (Params_Get(PARAM_ID_DG))
+#undef  CHASSIS_FOLLOW_SPEED_MAX
+#define CHASSIS_FOLLOW_SPEED_MAX              (Params_Get(PARAM_ID_VMAX))
+#undef  CHASSIS_FOLLOW_BASE_SPEED
+#define CHASSIS_FOLLOW_BASE_SPEED             (Params_Get(PARAM_ID_BASE))
+#undef  CHASSIS_FOLLOW_DISTANCE_DEADBAND_CM
+#define CHASSIS_FOLLOW_DISTANCE_DEADBAND_CM   (Params_Get(PARAM_ID_DDB))
+#undef  CHASSIS_FOLLOW_STEER_KD
+#define CHASSIS_FOLLOW_STEER_KD               (Params_Get(PARAM_ID_KD))
+#undef  CHASSIS_FOLLOW_TURN_ONLY_TENTH_DEG
+#define CHASSIS_FOLLOW_TURN_ONLY_TENTH_DEG    (Params_Get(PARAM_ID_TO))
+#undef  CHASSIS_LINE_STEER_GAIN
+#define CHASSIS_LINE_STEER_GAIN               (Params_Get(PARAM_ID_LG))
+#undef  CHASSIS_LINE_BASE_SPEED
+#define CHASSIS_LINE_BASE_SPEED               (Params_Get(PARAM_ID_LV))
+#undef  CHASSIS_FOLLOW_BLIND_DEV_TENTH_DEG
+#define CHASSIS_FOLLOW_BLIND_DEV_TENTH_DEG    (Params_Get(PARAM_ID_BD))
+#undef  CHASSIS_FOLLOW_BLIND_STEER
+#define CHASSIS_FOLLOW_BLIND_STEER            (Params_Get(PARAM_ID_BS))
+#undef  CHASSIS_LINE_SLOW_GAIN
+#define CHASSIS_LINE_SLOW_GAIN                (Params_Get(PARAM_ID_LS))
+#undef  CHASSIS_LINE_LOST_HOLD_MS
+#define CHASSIS_LINE_LOST_HOLD_MS             ((uint32_t)Params_Get(PARAM_ID_LH))
+#undef  CHASSIS_LINE_STEER_KD
+#define CHASSIS_LINE_STEER_KD                 (Params_Get(PARAM_ID_LKD))
+#undef  CHASSIS_LINE_CROSS_MS
+#define CHASSIS_LINE_CROSS_MS                 ((uint16_t)Params_Get(PARAM_ID_CRS))
+#endif
+
 /* 当前模式 */
 static ChassisMode_t s_mode = CHASSIS_MODE_LINE_TRACK;
 
@@ -32,6 +83,17 @@ static ChassisMode_t s_mode = CHASSIS_MODE_LINE_TRACK;
  * s_remote_stop = 1 表示收到过 stop，整车停住直到再来 mode1/mode2 或按键。 */
 static uint8_t s_link_cmd = 0U;
 static uint8_t s_remote_stop = 0U;
+
+/* ---------- 提示音（0x05 帧）的边沿检测状态 ----------
+ * 蜂鸣器在云台板，这里只负责"什么时候该响"。
+ * 全部按上沿触发：状态没变就不发帧，否则一直丢线会响成一片。 */
+static uint8_t s_beep_remote_stop_prev = 1U;  /* 上电即 STOP，首次解锁才算"起跑" */
+static uint8_t s_beep_link_prev = 0U;         /* 上一拍链路是否在线 */
+static uint8_t s_beep_line_lost = 0U;         /* 本次脱线是否已响过 */
+static uint16_t s_line_black_ms = 0U;         /* 7 路全黑已持续多久 */
+static uint8_t s_line_black_beeped = 0U;      /* 本次全黑是否已响过（防重复长鸣） */
+static uint8_t s_line_arrived = 0U;           /* 十字路口已停车锁存（按 PB13/蓝牙解锁） */
+static uint8_t s_line_armed = 1U;             /* 0 = 需先见到白色才允许再次判定十字路口 */
 
 /* 节流基准 */
 static uint32_t s_last_display_ms = 0U;
@@ -205,6 +267,9 @@ static void ChassisTask_ResetFollowState(void)
 /* 进入搜索：优先朝人最后出现的方向转；偏角在死区内则沿用上次的方向。 */
 static void ChassisTask_EnterSearch(void)
 {
+    /* 提示音：丢人进搜索，三声急促（与模式1 的丢线同一个音型） */
+    VisionLink_SendBeep(LINK_BEEP_LOST);
+
     if (s_last_dev_tenth > (int16_t)CHASSIS_FOLLOW_STEER_DEADBAND_TENTH_DEG) {
         s_search_dir = 1;
     } else if (s_last_dev_tenth < -(int16_t)CHASSIS_FOLLOW_STEER_DEADBAND_TENTH_DEG) {
@@ -292,24 +357,113 @@ static int32_t ChassisTask_UpdateSearchState(void)
  *    这里保持停车，不做任何驱动。判线实现在 modules/line_sensor.c。 */
 static void ChassisTask_UpdateLineTrack(void)
 {
+    /* 脱线保持用的两个静态量：上一拍的差速量、已经保持了多久 */
+    static int32_t s_line_last_steer = 0;
+    static uint32_t s_line_lost_ms = 0U;
+    static int32_t s_line_last_pos = 0;
+
     LineSensor_t line = LineSensor_Get();
     int32_t steer;
     int32_t forward;
     int32_t left;
     int32_t right;
+    int32_t mag;
+    int32_t factor;
 
-    /* 1) 脱线：停车等待，不盲目前冲（要求「不冲出赛道」）。
-     *    lost 已经自带 CHASSIS_LINE_LOST_COUNT(20 拍 = 100 ms) 的确认，
-     *    所以偶尔一两拍看不到线不会导致一顿一停。 */
+    /* ---------- 提示音 1：脱线（三声急促） ----------
+     * 只在"刚脱线"那一下响，压回线再脱线才会再响。 */
     if (line.lost != 0U) {
-        ChassisTask_SetBranch(11U);
+        if (s_beep_line_lost == 0U) {
+            s_beep_line_lost = 1U;
+            VisionLink_SendBeep(LINK_BEEP_LOST);
+        }
+    } else {
+        s_beep_line_lost = 0U;
+    }
+
+    /* ---------- 提示音 2 + 十字路口停车 ----------
+     * 7 路全黑（active_mask 位=1 表示压黑线，故 0x7F）= 十字路口/停车线。
+     * 2026-11-21 需求：遇到十字路口不再直行通过 —— 全黑持续
+     * CHASSIS_LINE_CROSS_MS 就立刻停车 + 长鸣 1 s，然后锁存不动，
+     * 直到按 PB13 或蓝牙发 mode1/mode2 重新起跑。
+     * CHASSIS_LINE_CROSS_MS = 0 时只长鸣不停车（可在线用 crs 调）。 */
+    if ((line.active_mask & 0x7FU) == 0x7FU) {
+        if (s_line_black_ms < 1000U) {
+            s_line_black_ms += CHASSIS_CONTROL_PERIOD_MS;
+        }
+        if ((s_line_armed != 0U) && (s_line_black_ms >= CHASSIS_LINE_CROSS_MS) &&
+            (s_line_black_beeped == 0U)) {
+            s_line_black_beeped = 1U;
+            VisionLink_SendBeep(LINK_BEEP_STOP_LINE);
+            if (CHASSIS_LINE_CROSS_MS != 0U) {
+                s_line_arrived = 1U;
+                s_line_armed = 0U;      /* 解锁后必须先离开黑区，避免原地反复触发 */
+            }
+        }
+    } else {
+        s_line_black_ms = 0U;
+        s_line_black_beeped = 0U;
+        s_line_armed = 1U;              /* 见到白色 = 已离开路口，重新允许判定 */
+    }
+
+    /* 已判到十字路口：停车并锁存，后面的循迹控制全部跳过 */
+    if (s_line_arrived != 0U) {
+        ChassisTask_SetBranch(13U);
         Motor_SetSpeed(0, 0);
+        s_line_last_steer = 0;
+        s_line_last_pos = 0;
+        s_line_lost_ms = 0U;
         return;
     }
+
+    /* 1) 脱线：先按上一拍差速再走 CHASSIS_LINE_LOST_HOLD_MS，超时才停。
+     *    这样偏出去的车有机会自己压回线，而不是一走神就趴窝。
+     *    （line.lost 本身已带 20 拍 = 100 ms 的确认，偶发一两拍不会触发。） */
+    if (line.lost != 0U) {
+        if (s_line_lost_ms < CHASSIS_LINE_LOST_HOLD_MS) {
+            s_line_lost_ms += CHASSIS_CONTROL_PERIOD_MS;
+
+            left = -(int32_t)CHASSIS_LINE_BASE_SPEED - s_line_last_steer;
+            right = -(int32_t)CHASSIS_LINE_BASE_SPEED + s_line_last_steer;
+
+            if (left > (int32_t)CHASSIS_MOTOR_DUTY_MAX) {
+                left = (int32_t)CHASSIS_MOTOR_DUTY_MAX;
+            } else if (left < -(int32_t)CHASSIS_MOTOR_DUTY_MAX) {
+                left = -(int32_t)CHASSIS_MOTOR_DUTY_MAX;
+            }
+            if (right > (int32_t)CHASSIS_MOTOR_DUTY_MAX) {
+                right = (int32_t)CHASSIS_MOTOR_DUTY_MAX;
+            } else if (right < -(int32_t)CHASSIS_MOTOR_DUTY_MAX) {
+                right = -(int32_t)CHASSIS_MOTOR_DUTY_MAX;
+            }
+
+            ChassisTask_SetBranch(11U);
+            Motor_SetSpeed((int16_t)left, (int16_t)right);
+            return;
+        }
+
+        ChassisTask_SetBranch(11U);
+        Motor_SetSpeed(0, 0);
+
+        s_line_last_steer = 0;
+        s_line_last_pos = 0;
+        s_line_lost_ms = 0U;
+        return;
+    }
+
+    s_line_lost_ms = 0U;
 
     /* 2) 线位置 -> 差速。position：-100（最左）~ +100（最右），0 = 线在正中。
      *    「线在右边」= 车偏左了 = 车得往右拐。 */
     steer = ((int32_t)line.position * CHASSIS_LINE_STEER_GAIN) / 100;
+
+    /* 2.1) D 项：position 的变化量。默认 KD=0，等于没有这一行；
+     *      实车看 S 弯摆得厉害再给数（20~80 起步）。 */
+    if (CHASSIS_LINE_STEER_KD != 0) {
+        steer += (((int32_t)line.position - s_line_last_pos) * CHASSIS_LINE_STEER_KD) / 10;
+    }
+    s_line_last_pos = (int32_t)line.position;
+
     steer *= CHASSIS_LINE_STEER_SIGN;
 
     if (steer > CHASSIS_LINE_STEER_MAX) {
@@ -318,8 +472,20 @@ static void ChassisTask_UpdateLineTrack(void)
         steer = -CHASSIS_LINE_STEER_MAX;
     }
 
-    /* 3) 前进量取负：本车 Motor_SetSpeed() 负值 = 前进（与模式 2 同一套极性） */
-    forward = -(int32_t)CHASSIS_LINE_BASE_SPEED;
+    /* 3) 弯道降速：偏得越多速度越低，避免急弯冲出去。
+     *    factor 最低留 20%，防止整数算成 0 直接停车。 */
+    mag = (int32_t)line.position;
+    if (mag < 0) {
+        mag = -mag;
+    }
+
+    factor = 100 - ((int32_t)CHASSIS_LINE_SLOW_GAIN * mag) / 100;
+    if (factor < 20) {
+        factor = 20;
+    }
+
+    /* 前进量取负：本车 Motor_SetSpeed() 负值 = 前进（与模式 2 同一套极性） */
+    forward = -(((int32_t)CHASSIS_LINE_BASE_SPEED * factor) / 100);
 
     /* 4) 差速合成：与模式 2 同一套约定 —— 左减右加，
      *    steer 为正时左轮更偏前进，车头向右转。 */
@@ -336,6 +502,8 @@ static void ChassisTask_UpdateLineTrack(void)
     } else if (right < -(int32_t)CHASSIS_MOTOR_DUTY_MAX) {
         right = -(int32_t)CHASSIS_MOTOR_DUTY_MAX;
     }
+
+    s_line_last_steer = steer;
 
     ChassisTask_SetBranch(12U);
     Motor_SetSpeed((int16_t)left, (int16_t)right);
@@ -713,6 +881,12 @@ static void ChassisTask_PollKey(uint32_t now_ms)
             /* 按键优先：按下就把蓝牙 stop 的锁存解掉，人手上说了算 */
             s_remote_stop = 0U;
 
+            /* 同时解掉"十字路口已停车"的锁存，按一下就能重新起跑 */
+            s_line_arrived = 0U;
+            s_line_armed = 0U;
+            s_line_black_ms = 0U;
+            s_line_black_beeped = 0U;
+
             if (s_mode == CHASSIS_MODE_LINE_TRACK) {
                 s_mode = CHASSIS_MODE_FOLLOW;
             } else {
@@ -754,6 +928,12 @@ static void ChassisTask_PollRemoteCommand(void)
 
     Motor_Stop();
     ChassisTask_ResetFollowState();
+
+    /* 任何蓝牙命令都解掉"十字路口已停车"的锁存，重新起跑 */
+    s_line_arrived = 0U;
+    s_line_armed = 0U;
+    s_line_black_ms = 0U;
+    s_line_black_beeped = 0U;
 
     if (command == 1U) {
         s_mode = CHASSIS_MODE_LINE_TRACK;
@@ -900,6 +1080,8 @@ static void ChassisTask_RefreshDisplay(void)
     /* ---------- 第 1 行：模式 + 链路状态 ---------- */
     if (s_remote_stop != 0U) {
         (void)snprintf(text, sizeof(text), "Mode:STOP %s", ChassisTask_LinkStatusText());
+    } else if ((s_mode == CHASSIS_MODE_LINE_TRACK) && (s_line_arrived != 0U)) {
+        (void)snprintf(text, sizeof(text), "Mode:LINE DONE");
     } else if (s_mode == CHASSIS_MODE_LINE_TRACK) {
         (void)snprintf(text, sizeof(text), "Mode:LINE %s", ChassisTask_LinkStatusText());
     } else {
@@ -954,6 +1136,10 @@ void ChassisTask_Init(void)
 
     /* 0) 1 ms 时基：所有超时、dage、速度环 dt 都依赖它，必须最先起来 */
     Delay_Init();
+
+    /* 0.1) 在线调参参数表：必须早于任何控制律调用，
+     *      否则第一拍读到的是全 0（车会按 0 增益跑一拍） */
+    Params_Init();
 
     /* 1) 电机先初始化：BSP 末尾会让电机滑行，确保上电不动 */
     Motor_Init();
@@ -1028,6 +1214,24 @@ void ChassisTask_Loop(void)
     /* ---------- 4.5 蓝牙命令（mode1 / mode2 / stop） ---------- */
     ChassisTask_PollRemoteCommand();
     ChassisTask_MarkStage(5U, now_ms);
+
+    /* ---------- 4.6 提示音（起跑 / 断链） ----------
+     * 起跑 = STOP 锁存被解开（收到 mode1/mode2 或按了模式键），两声上行；
+     * 断链 = 链路从"在线"变"离线"，长鸣 0.5 s。
+     * 都是上沿触发，所以不会每拍都响。 */
+    {
+        uint8_t rx_now = VisionLink_IsReceiving();
+
+        if ((s_beep_remote_stop_prev != 0U) && (s_remote_stop == 0U)) {
+            VisionLink_SendBeep(LINK_BEEP_START);
+        }
+        s_beep_remote_stop_prev = s_remote_stop;
+
+        if ((s_beep_link_prev != 0U) && (rx_now == 0U)) {
+            VisionLink_SendBeep(LINK_BEEP_LINK_LOST);
+        }
+        s_beep_link_prev = rx_now;
+    }
 
     /* ---------- 5. 按模式分派 ---------- */
     if (s_remote_stop != 0U) {

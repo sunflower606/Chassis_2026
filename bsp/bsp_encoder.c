@@ -50,9 +50,21 @@ void BSP_Encoder_Init(void)
     RCC_APB2PeriphClockCmd(BOARD_ENC_LEFT_B_GPIO_CLK, ENABLE);
     RCC_APB2PeriphClockCmd(BOARD_ENC_RIGHT_GPIO_CLK, ENABLE);
 
-    /* 编码器输出是推挽/开集电平信号，MCU 侧浮空输入即可 */
+    /* 编码器 A/B 相一律用上拉输入（2026-11-21 由浮空改为 IPU）。
+     *
+     * 为什么必须上拉：
+     *   MG513 的霍尔编码器多为**开集（OC）输出**，只能拉低、不能拉高。
+     *   之前用 GPIO_Mode_IN_FLOATING 时，高电平全靠模块内部/线路寄生，
+     *   在电机 PWM（≈1 kHz、大电流）旁边很容易被耦合噪声拉低，
+     *   表现为：读数幅度忽大忽小、方向偶尔翻转、静止时 ej 计数乱跳。
+     *   加上拉后高电平有了明确的 3.3 V 源（内部约 30~50 kΩ），
+     *   开集拉低仍是低电平，A/B 正交解码不受影响。
+     *
+     * 注意：内部上拉是弱上拉（几十 kΩ），若线束很长或噪声极大，
+     *   可在模块侧再并 4.7 kΩ 外部上拉到 3.3 V（不要上拉到 5 V，
+     *   PA0/PA1 是 TTa 脚，不耐 5 V）。 */
     gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
-    gpio_init.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+    gpio_init.GPIO_Mode = GPIO_Mode_IPU;
 
     gpio_init.GPIO_Pin = BOARD_ENC_LEFT_A_PIN;
     GPIO_Init(BOARD_ENC_LEFT_A_GPIO, &gpio_init);

@@ -29,11 +29,13 @@ set(SOURCES
     bsp/bsp_key.c
     bsp/bsp_soft_i2c.c
     bsp/bsp_encoder.c
+    bsp/bsp_flash.c
     bsp/bsp_ultrasonic.c
 
     modules/line_sensor.c
     modules/motor_driver.c
     modules/speed_loop.c
+    modules/params.c
     modules/vision_link.c
     modules/distance_sensor.c
     modules/oled.c

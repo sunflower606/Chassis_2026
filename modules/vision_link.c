@@ -4,6 +4,7 @@
 
 #include "bsp_uart.h"
 #include "chassis_config.h"
+#include "params.h"
 #include "Delay.h"
 
 /* 帧结构与常量：必须与云台板 modules/link_protocol.c 以及
@@ -12,7 +13,21 @@
 #define LINK_HEAD_LEN           4U
 #define LINK_HEAD_0             0xAAU
 #define LINK_HEAD_1             0x55U
-#define LINK_TYPE               0x02U
+#define LINK_TYPE_STATUS        0x02U   /* 状态帧：云台 -> 底盘 */
+#define LINK_TYPE_PARAM_SET     0x03U   /* 调参设置：云台 -> 底盘 */
+#define LINK_TYPE_PARAM_ACK     0x04U   /* 调参应答：底盘 -> 云台 */
+#define LINK_TYPE_BEEP          0x05U   /* 提示音：底盘 -> 云台（第 8 字节 = 音型号） */
+
+/* 0x03 帧第 8 字节：操作码 */
+#define LINK_PARAM_OP_SET       0U      /* 改值 */
+#define LINK_PARAM_OP_GET       1U      /* 只读回当前值 */
+#define LINK_PARAM_OP_RESET     2U      /* 全部恢复默认值（id 忽略） */
+#define LINK_PARAM_OP_TOGGLE    3U      /* 切换 A2（参数存 Flash）开关，结果在应答值里 */
+#define LINK_PARAM_OP_SAVE      4U      /* 把当前参数写进 Flash（需 A2 已开） */
+
+/* 应答里用来表示"不是某个具体参数"的特殊 id */
+#define LINK_ACK_ID_RESET       0xFFFFU /* 恢复默认成功了 */
+#define LINK_ACK_ID_SAVE        0xFFFEU /* 存盘结果：value = 1 成功 / 0 失败 */
 #define LINK_LENGTH             0x08U
 #define LINK_CHECKSUM_INDEX     12U
 
@@ -42,7 +57,11 @@ static uint8_t VisionLink_IsHeaderAt(uint16_t offset)
     if (BSP_UART_PeekAt((uint16_t)(offset + 1U), &byte) == 0U || byte != LINK_HEAD_1) {
         return 0U;
     }
-    if (BSP_UART_PeekAt((uint16_t)(offset + 2U), &byte) == 0U || byte != LINK_TYPE) {
+    if (BSP_UART_PeekAt((uint16_t)(offset + 2U), &byte) == 0U) {
+        return 0U;
+    }
+    /* 状态帧与调参帧共用同一个 13 字节骨架，只有 type 不同 */
+    if ((byte != LINK_TYPE_STATUS) && (byte != LINK_TYPE_PARAM_SET)) {
         return 0U;
     }
     if (BSP_UART_PeekAt((uint16_t)(offset + 3U), &byte) == 0U || byte != LINK_LENGTH) {
@@ -50,6 +69,132 @@ static uint8_t VisionLink_IsHeaderAt(uint16_t offset)
     }
 
     return 1U;
+}
+
+/* ============================================================================
+ * 调参帧（type = 0x03 / 0x04）
+ *
+ * 为什么要这两种帧：
+ *   原来的 0x02 是单向的（云台 -> 底盘），只装"状态"。
+ *   调参是一次来回对话：上位机问「把 3 号参数改成 6」，
+ *   底盘必须能回答「改好了，现在是 6」或者「超范围，没改」，
+ *   所以需要一对请求/应答帧。
+ *
+ * 0x03 设置帧字段： 4-5 参数号，6-7 新值，8-11 保留
+ * 0x04 应答帧字段： 4-5 参数号，6-7 当前值，8 保留，9 错误码，10-11 保留
+ * ========================================================================== */
+
+/* 发一帧 0x04 应答。13 字节走的是 TX 环缓（不阻塞），不会打乱控制周期。 */
+static void VisionLink_SendParamAck(uint16_t id, int16_t value, uint8_t error_code)
+{
+    uint8_t frame[LINK_FRAME_LEN];
+    uint8_t checksum = 0U;
+    uint16_t raw_value = (uint16_t)value;
+    uint8_t i;
+
+    frame[0] = LINK_HEAD_0;
+    frame[1] = LINK_HEAD_1;
+    frame[2] = LINK_TYPE_PARAM_ACK;
+    frame[3] = LINK_LENGTH;
+    frame[4] = (uint8_t)(id >> 8);
+    frame[5] = (uint8_t)(id & 0xFFU);
+    frame[6] = (uint8_t)(raw_value >> 8);
+    frame[7] = (uint8_t)(raw_value & 0xFFU);
+    frame[8] = 0U;
+    frame[9] = error_code;
+    frame[10] = 0U;
+    frame[11] = 0U;
+
+    for (i = 0U; i < LINK_CHECKSUM_INDEX; i++) {
+        checksum ^= frame[i];
+    }
+    frame[LINK_CHECKSUM_INDEX] = checksum;
+
+    for (i = 0U; i < LINK_FRAME_LEN; i++) {
+        BSP_UART_SendByte(frame[i]);
+    }
+}
+
+/* 发一帧 0x05 提示音指令（底盘 -> 云台）。
+ *
+ * 为什么需要跨板：蜂鸣器焊在云台板的 PB4 上，而"过十字 / 到停车线 / 丢线"
+ * 这些事件只有底盘知道（它读循迹传感器），所以必须借链路把"响"送过去。
+ *
+ * 第 8 字节 = 音型号，与 Gimbal_2026/modules/buzzer.h 的枚举一一对应：
+ *   0 起跑  1 过十字  2 丢线/丢人  3 到停车线  4 断链  5 低电压
+ *
+ * 同样走 TX 环缓，13 字节约 1.1 ms，不阻塞 5 ms 控制环。 */
+void VisionLink_SendBeep(uint8_t pattern)
+{
+    uint8_t frame[LINK_FRAME_LEN];
+    uint8_t checksum = 0U;
+    uint8_t i;
+
+    frame[0] = LINK_HEAD_0;
+    frame[1] = LINK_HEAD_1;
+    frame[2] = LINK_TYPE_BEEP;
+    frame[3] = LINK_LENGTH;
+    frame[4] = 0U;
+    frame[5] = 0U;
+    frame[6] = 0U;
+    frame[7] = 0U;
+    frame[8] = pattern;
+    frame[9] = 0U;
+    frame[10] = 0U;
+    frame[11] = 0U;
+
+    for (i = 0U; i < LINK_CHECKSUM_INDEX; i++) {
+        checksum ^= frame[i];
+    }
+    frame[LINK_CHECKSUM_INDEX] = checksum;
+
+    for (i = 0U; i < LINK_FRAME_LEN; i++) {
+        BSP_UART_SendByte(frame[i]);
+    }
+}
+
+/* 处理一帧 0x03：改参数并回执。
+ * 失败也回执 —— 上位机必须知道"没改成"，否则会以为调好了。 */
+static void VisionLink_HandleParamSet(const uint8_t *raw)
+{
+    uint16_t id;
+    int16_t value;
+    uint8_t result;
+
+    id = VisionLink_ReadUint16Be(&raw[4]);
+    value = VisionLink_ReadInt16Be(&raw[6]);
+
+    /* 操作码：0 设置 / 1 读取 / 2 全部恢复默认 */
+    switch (raw[8]) {
+    case LINK_PARAM_OP_GET:
+        result = (Params_Exists(id) != 0U) ? PARAM_OK : PARAM_ERR_ID;
+        VisionLink_SendParamAck(id, Params_Get(id), result);
+        break;
+
+    case LINK_PARAM_OP_RESET:
+        Params_Reset();
+        VisionLink_SendParamAck(LINK_ACK_ID_RESET, 0, PARAM_OK);
+        break;
+
+    case LINK_PARAM_OP_TOGGLE:
+        /* 值字段回的是"切换之后的状态"：1 = A2 已开，0 = 已关 */
+        VisionLink_SendParamAck(PARAM_ID_A2, (int16_t)Params_ToggleA2(), PARAM_OK);
+        break;
+
+    case LINK_PARAM_OP_SAVE:
+        result = Params_Save();
+        VisionLink_SendParamAck(LINK_ACK_ID_SAVE,
+                                (result == PARAM_OK) ? 1 : 0,
+                                result);
+        break;
+
+    case LINK_PARAM_OP_SET:
+    default:
+        result = Params_Set(id, value);
+        /* 回的是"当前真实生效值"：成功时就是新值，失败时是没变的老值 */
+        VisionLink_SendParamAck(id, Params_Get(id), result);
+        break;
+    }
 }
 
 void VisionLink_Init(void)
@@ -131,6 +276,13 @@ void VisionLink_Poll(void)
         }
 
         BSP_UART_Skip(LINK_FRAME_LEN);
+
+        /* 调参帧：只改参数并回执，不参与控制快照
+         * （否则一帧调参数据会覆盖掉刚收到的偏角） */
+        if (raw[2] == LINK_TYPE_PARAM_SET) {
+            VisionLink_HandleParamSet(raw);
+            continue;
+        }
 
         s_link.yaw_dev_tenth_deg = VisionLink_ReadInt16Be(&raw[4]);
         s_link.offset_x = VisionLink_ReadInt16Be(&raw[6]);

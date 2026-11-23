@@ -50,6 +50,21 @@ void VisionLink_Init(void);
 /* 每控制周期调用：把缓冲里所有完整帧解析出来，只保留最新一帧 */
 void VisionLink_Poll(void);
 
+/* 0x05 提示音帧的音型号 —— 必须与 Gimbal_2026/modules/buzzer.h 的枚举一一对应 */
+#define LINK_BEEP_START          0U   /* 起跑：两声上行 */
+#define LINK_BEEP_CROSS          1U   /* 过十字：一声短 */
+#define LINK_BEEP_LOST           2U   /* 丢线/丢人：三声急促 */
+#define LINK_BEEP_STOP_LINE      3U   /* 到停车线：长鸣 1 s */
+#define LINK_BEEP_LINK_LOST      4U   /* 断链：长鸣 0.5 s */
+#define LINK_BEEP_LOW_BAT        5U   /* 低电压：一短声 */
+
+/** @brief 让云台板蜂鸣器响一下（0x05 帧，底盘 -> 云台）。
+ *  @param pattern 音型号：0 起跑 / 1 过十字 / 2 丢线 / 3 停车线 / 4 断链 / 5 低电压。
+ *
+ *  蜂鸣器在云台板上，而触发这些事件的信息只有底盘有，所以要跨板发。
+ *  内部走 TX 环缓，不阻塞控制环；链路断开时调用无副作用（帧发出去没人收）。 */
+void VisionLink_SendBeep(uint8_t pattern);
+
 /** @brief 取最近一次快照（值拷贝）。 */
 VisionLink_t VisionLink_Get(void);
 
