@@ -46,8 +46,9 @@
 #define PARAM_ID_LH         15U    /* 循迹脱线保持  ms          */
 #define PARAM_ID_LKD        16U    /* 循迹 D 项     ‰/单位      */
 #define PARAM_ID_CRS        17U    /* 十字路口停车门限 ms（0=只长鸣不停车） */
+#define PARAM_ID_WAVE       18U    /* VOFA+ 波形输出开关（0=关 1=开） */
 
-#define PARAM_COUNT         18U
+#define PARAM_COUNT         19U
 
 /* ---- 返回码：与链路帧 0x04 的错误码一一对应 ---- */
 #define PARAM_OK             0U

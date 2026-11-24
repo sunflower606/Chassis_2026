@@ -36,6 +36,8 @@ set(SOURCES
     modules/motor_driver.c
     modules/speed_loop.c
     modules/params.c
+    modules/blackbox.c
+    modules/odometry.c
     modules/vision_link.c
     modules/distance_sensor.c
     modules/oled.c

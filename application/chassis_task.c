@@ -6,11 +6,13 @@
 #include "bsp_encoder.h"
 #include "bsp_key.h"
 #include "bsp_uart.h"
+#include "blackbox.h"
 #include "chassis_config.h"
 #include "Delay.h"
 #include "distance_sensor.h"
 #include "line_sensor.h"
 #include "motor_driver.h"
+#include "odometry.h"
 #include "oled.h"
 #include "params.h"
 #include "vision_link.h"
@@ -87,11 +89,18 @@ static uint8_t s_remote_stop = 0U;
 /* ---------- 提示音（0x05 帧）的边沿检测状态 ----------
  * 蜂鸣器在云台板，这里只负责"什么时候该响"。
  * 全部按上沿触发：状态没变就不发帧，否则一直丢线会响成一片。 */
-static uint8_t s_beep_remote_stop_prev = 1U;  /* 上电即 STOP，首次解锁才算"起跑" */
+static uint8_t s_beep_remote_stop_prev = 1U;
+/* 模式上报（0x06）用：0xFF 表示"还没发过"，配合 1 s 心跳 */
+static uint8_t s_mode_reported = 0xFFU;
+static uint32_t s_mode_report_ms = 0U;
+static uint32_t s_wave_ms = 0U;          /* 上次发波形帧的时刻 */  /* 上电即 STOP，首次解锁才算"起跑" */
 static uint8_t s_beep_link_prev = 0U;         /* 上一拍链路是否在线 */
 static uint8_t s_beep_line_lost = 0U;         /* 本次脱线是否已响过 */
 static uint16_t s_line_black_ms = 0U;         /* 7 路全黑已持续多久 */
 static uint8_t s_line_black_beeped = 0U;      /* 本次全黑是否已响过（防重复长鸣） */
+/* 黑匣子（方案 B）：100 ms 采一条进 RAM，停车时整块落盘 */
+static uint32_t s_bb_ms = 0U;
+static uint8_t s_bb_flushed = 0U;
 static uint8_t s_line_arrived = 0U;           /* 十字路口已停车锁存（按 PB13/蓝牙解锁） */
 static uint8_t s_line_armed = 1U;             /* 0 = 需先见到白色才允许再次判定十字路口 */
 
@@ -1140,12 +1149,18 @@ void ChassisTask_Init(void)
     /* 0.1) 在线调参参数表：必须早于任何控制律调用，
      *      否则第一拍读到的是全 0（车会按 0 增益跑一拍） */
     Params_Init();
+    Blackbox_Init();
 
     /* 1) 电机先初始化：BSP 末尾会让电机滑行，确保上电不动 */
     Motor_Init();
 
     /* 2) 编码器（只做诊断，不参与控制） */
     BSP_Encoder_Init();
+
+    /* 2.1) 里程计：以当前编码器计数为零点。
+     *      必须在 BSP_Encoder_Init() 之后，否则读到的是未初始化的 0；
+     *      也必须在第一次 Odometry_Update() 之前，否则第一拍会算进一个巨大增量。 */
+    Odometry_Init();
 
     /* 3) 输入 */
     LineSensor_Init();
@@ -1199,6 +1214,11 @@ void ChassisTask_Loop(void)
     VisionLink_Poll();
     ChassisTask_MarkStage(1U, now_ms);
 
+    /* 0) 里程计：每个控制拍读一次编码器计数（自持快照，不消费速度环的增量）。
+     *    放在所有分支之前，保证停车/搜索/循迹/跟随都在累计；
+     *    放在分支之后的话，一进搜索航向就会“丢一段”。 */
+    Odometry_Update();
+
     /* ---------- 2. 超声波（内部按 60 ms 节流触发） ---------- */
     DistanceSensor_Poll();
     ChassisTask_MarkStage(2U, now_ms);
@@ -1231,6 +1251,29 @@ void ChassisTask_Loop(void)
             VisionLink_SendBeep(LINK_BEEP_LINK_LOST);
         }
         s_beep_link_prev = rx_now;
+    }
+
+    /* ---------- 4.7 模式上报（给云台板用，2026-11-23） ----------
+     * 云台靠它决定"丢人后要不要扫视"：只在模式 1（循迹）才扫。
+     * 模式变化立刻发一次；之后每 1 s 补一次，丢一帧也能在 1 s 内恢复。 */
+    {
+        uint8_t mode_code;
+        uint32_t now_mode_ms = Delay_GetMs();
+
+        if (s_remote_stop != 0U) {
+            mode_code = LINK_MODE_STOP;
+        } else if (s_mode == CHASSIS_MODE_LINE_TRACK) {
+            mode_code = LINK_MODE_LINE;
+        } else {
+            mode_code = LINK_MODE_FOLLOW;
+        }
+
+        if ((mode_code != s_mode_reported) ||
+            ((uint32_t)(now_mode_ms - s_mode_report_ms) >= 1000U)) {
+            VisionLink_SendMode(mode_code);
+            s_mode_reported = mode_code;
+            s_mode_report_ms = now_mode_ms;
+        }
     }
 
     /* ---------- 5. 按模式分派 ---------- */
@@ -1266,7 +1309,7 @@ void ChassisTask_Loop(void)
 
     /* ---------- 7. 节流串口回传 ---------- */
     if ((uint32_t)(now_ms - s_last_debug_ms) >= CHASSIS_DEBUG_PERIOD_MS) {
-        char text[224];
+        char text[256];   /* 加上 th/od/eL/eR 后最长约 244 字节 */
         LineSensor_t line = LineSensor_Get();
         DistanceSensor_t dist = DistanceSensor_Get();
         int16_t sp_left = Motor_GetLeftSpeed();
@@ -1300,7 +1343,7 @@ void ChassisTask_Loop(void)
         (void)snprintf(text, sizeof(text),
                       "C: mode=%d raw=%02X pos=%+04d lost=%d out=%d/%d dev=%d link=%d "
                       "dist=%u/%u us=%u sp=%d/%d err=%lu srch=%d "
-                      "st=%u sw=%u dage=%u oled=%u lp=%u/%u oc=%u eL=%d eR=%d\r\n",
+                      "st=%u sw=%u dage=%u oled=%u lp=%u/%u oc=%u th=%+04d od=%u eL=%d eR=%d\r\n",
                       (int)s_mode,
                       (unsigned)line.raw_levels,
                       (int)line.position,
@@ -1323,12 +1366,79 @@ void ChassisTask_Loop(void)
                       (unsigned)s_loop_max_ms,
                       (unsigned)s_loop_max_stage,
                       (unsigned)s_oled_chars_max,
+                      (int)Odometry_GetHeadingTenthDeg(),
+                      (unsigned)Odometry_GetDistanceCm(),
                       (int)ec_left,
                       (int)ec_right);
         s_loop_max_ms = 0U;             /* 每个窗口重新取最大值 */
         s_loop_max_stage = 0U;          /* 段号一起清零，否则一直停在上一条 */
         s_oled_chars_max = 0U;          /* 上一秒的 OLED 字符峰值已打印，重新统计 */
         BSP_UART_SendString(text);
+    }
+
+    /* ---------- 黑匣子（2026-11-23，方案 B） ----------
+     * 1) 每 100 ms 记一条到 RAM：只碰内存，零停顿；
+     * 2) 只在"整车已停"时整块刷进 Flash —— 车本来就不动，
+     *    150~250 ms 的擦写停顿无害，正常跑起来一秒都不停；
+     * 3) DumpStep 每拍最多发 4 行，不阻塞 5 ms 控制环。
+     * 导出：蓝牙发 bb → 云台板转 0x03(op=5) → 这里逐行发 "BB,..." 文本。 */
+    if ((uint32_t)(now_ms - s_bb_ms) >= CHASSIS_BLACKBOX_PERIOD_MS) {
+        BlackboxSample_t bs;
+        LineSensor_t bb_line = LineSensor_Get();
+        DistanceSensor_t bb_dist = DistanceSensor_Get();
+
+        s_bb_ms = now_ms;
+        bs.t_ms = (uint16_t)now_ms;
+        bs.dev = VisionLink_Get().yaw_dev_tenth_deg;
+        bs.out_l = (int16_t)Motor_GetLeftOutput();
+        bs.out_r = (int16_t)Motor_GetRightOutput();
+        bs.sp_l = Motor_GetLeftSpeed();
+        bs.sp_r = Motor_GetRightSpeed();
+        bs.dist_cm = bb_dist.distance_cm;
+        bs.pos = (int8_t)bb_line.position;
+        bs.st = s_branch_code;
+        Blackbox_Record(&bs);
+    }
+
+    /* 安全时刻落盘：整车停（蓝牙/按键 stop）或十字路口停（st=13）
+     * 只落一次，等车重新动起来再解锁，避免每拍都擦 Flash。 */
+    if ((s_remote_stop != 0U) || (s_branch_code == 13U)) {
+        if (s_bb_flushed == 0U) {
+            s_bb_flushed = 1U;
+            (void)Blackbox_Flush();
+        }
+    } else {
+        s_bb_flushed = 0U;
+    }
+
+    Blackbox_DumpStep();
+
+    /* ---------- 波形输出（VOFA+ FireWater，2026-11-23） ----------
+     * 开关是参数 wave（id 18）：蓝牙发 `set wave 1` 打开、`set wave 0` 关闭。
+     * 打开后每隔 CHASSIS_WAVE_PERIOD_MS 发一行**纯数字**，逗号分隔、\n 结尾，
+     * 这正是 VOFA+ 的 FireWater 协议，选 FireWater 控件即可出波形。
+     * 8 个通道顺序（在 VOFA+ 里按这个顺序命名）：
+     *   dev 云台偏角(0.1°) / pos 循迹偏差 / outL outR 占空比 /
+     *   spL spR 实测速度‰ / dist 距离cm / st 分支码
+     * 全部是整数，不用 %f —— 软浮点 printf 一次要几毫秒，会把 5 ms 控制环拖垮。 */
+    if (Params_Get(PARAM_ID_WAVE) != 0) {
+        if ((uint32_t)(now_ms - s_wave_ms) >= CHASSIS_WAVE_PERIOD_MS) {
+            char wave[64];
+            LineSensor_t line = LineSensor_Get();
+            DistanceSensor_t dist = DistanceSensor_Get();
+
+            s_wave_ms = now_ms;
+            (void)snprintf(wave, sizeof(wave), "%d,%d,%d,%d,%d,%d,%u,%u\n",
+                           (int)VisionLink_Get().yaw_dev_tenth_deg,
+                           (int)line.position,
+                           (int)Motor_GetLeftOutput(),
+                           (int)Motor_GetRightOutput(),
+                           (int)Motor_GetLeftSpeed(),
+                           (int)Motor_GetRightSpeed(),
+                           (unsigned)dist.distance_cm,
+                           (unsigned)s_branch_code);
+            BSP_UART_SendString(wave);
+        }
     }
 
     /* 记录本拍耗时：串口行里的 lp= 就是它过去 1 s 的最大值 */

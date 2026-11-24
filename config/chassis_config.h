@@ -24,6 +24,16 @@
 #define CHASSIS_CONTROL_DT_S                0.005f
 
 #define CHASSIS_DISPLAY_PERIOD_MS           100U
+/* VOFA+ 波形输出周期：20 ms = 50 帧/秒，肉眼看着流畅，串口占用约 2.2 kB/s。
+ * 想更细（看 5 ms 控制环的抖动）可改 10；只想看趋势可改 50。 */
+/* ---------- 黑匣子（方案 B） ----------
+ * 采样周期：100 ms 一条，RAM 存 300 条 = 30 秒，Flash 存 284 条 = 28.4 秒。
+ * 为什么是 100 ms：Flash 只分了 5 KB，100 ms 是"看趋势"够用的最粗粒度；
+ * 想看细节就同时开 wave=1（20 ms 波形输出），两者互不影响。 */
+#define CHASSIS_BLACKBOX_PERIOD_MS  100U
+
+#define CHASSIS_WAVE_PERIOD_MS    20U
+
 #define CHASSIS_DEBUG_PERIOD_MS             1000U   /* 串口调试行周期（2026-11-16 由 500 调到 1000：
                                                    * 蓝牙看日志时 2 行/秒太快，来不及读。
                                                    * 调大 = 更慢更好读；调小 = 定位瞬态问题时信息更密。
@@ -219,6 +229,34 @@
  * MG513 霍尔编码器常见为 11 线 × 减速比，4 倍频后 = 11 × 4 × 减速比。
  * 目前只用于显示/诊断，未参与控制；做速度闭环时才会用到。 */
 #define CHASSIS_ENCODER_COUNTS_PER_REV      1320
+
+/* ------------------------------------------------------------- 里程计（编码器航向）
+ * 用两轮计数差推算车体转角、用计数和推算里程（modules/odometry.c）。
+ * 阶段一**只做观测**：把 th= / od= 打到串口，不参与任何控制律。
+ *
+ * 标定方法（做一次就够）：
+ *   1) 直线推 1.00 m，看 od= 在不在 97~103；
+ *      不准 → 改 CHASSIS_WHEEL_DIAMETER_MM（新值 = 旧值 × 100 / 实测厘米数）
+ *   2) 原地推着转一整圈，th= 应绕回 0 附近（中途会到 ±1800）；
+ *      若转 90° 读成 80° 或 100° → 改 CHASSIS_WHEEL_TRACK_MM
+ *      （新值 = 旧值 × 实读角度 / 90）
+ *   3) 车头向左转时 th 应变正；若相反 → CHASSIS_ODOMETRY_HEADING_SIGN 改 -1
+ */
+
+/* 驱动轮直径（毫米）。65 mm 是按常见 MG513 轮子填的，实测为准 */
+#define CHASSIS_WHEEL_DIAMETER_MM           65U
+
+/* 两轮中心距（毫米）：量左右轮**接地点中心**之间的距离。
+ * ⚠️ 这是唯一必须用尺子量的参数，量错会让所有角度等比缩放 */
+#define CHASSIS_WHEEL_TRACK_MM              130U
+
+/* 左右轮计数符号：让“两轮都前进”时位移都为正。
+ * 本车实测左轮前进为正、右轮前进为负（镜像安装，见问题记录 C-04） */
+#define CHASSIS_ODOMETRY_LEFT_SIGN          (+1)
+#define CHASSIS_ODOMETRY_RIGHT_SIGN         (-1)
+
+/* 航向符号：+1 时“向左转 = 正角度”。若实测相反改成 -1 */
+#define CHASSIS_ODOMETRY_HEADING_SIGN       (+1)
 
 /* ------------------------------------------------------------- 通信超时
  * 与云台板的链路超时：超过该时间没收到新数据，视为链路断开。

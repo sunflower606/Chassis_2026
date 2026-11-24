@@ -1,13 +1,13 @@
 # ninja log v7
 10	176	8163643092548707	CMakeFiles/Chassis_2026.dir/startup_stm32f10x_md.s.obj	8f4ae03f95499474
-5	163	8169672736056949	CMakeFiles/Chassis_2026.dir/Core/Src/main.c.obj	67cdccd019448158
-40	170	8169672736404685	CMakeFiles/Chassis_2026.dir/modules/distance_sensor.c.obj	1d6aa21b12cb59ae
-11	201	8169672736122580	CMakeFiles/Chassis_2026.dir/modules/line_sensor.c.obj	c59fb63f6399730a
-34	171	8169672736339760	CMakeFiles/Chassis_2026.dir/modules/vision_link.c.obj	7124c9f15283f027
+17	225	8171392851613514	CMakeFiles/Chassis_2026.dir/Core/Src/main.c.obj	67cdccd019448158
+52	228	8171392851961456	CMakeFiles/Chassis_2026.dir/modules/distance_sensor.c.obj	1d6aa21b12cb59ae
+22	232	8171392851660313	CMakeFiles/Chassis_2026.dir/modules/line_sensor.c.obj	c59fb63f6399730a
+47	229	8171392851914514	CMakeFiles/Chassis_2026.dir/modules/vision_link.c.obj	7124c9f15283f027
 14	119	8166783245923287	CMakeFiles/Chassis_2026.dir/Core/Src/stm32f10x_it.c.obj	ed0f0f317c2fd050
-17	163	8169672736176997	CMakeFiles/Chassis_2026.dir/modules/motor_driver.c.obj	cc64ccbd51aa4c43
+27	227	8171392851707237	CMakeFiles/Chassis_2026.dir/modules/motor_driver.c.obj	cc64ccbd51aa4c43
 25	286	8163643092698946	CMakeFiles/Chassis_2026.dir/Drivers/CMSIS/system_stm32f10x.c.obj	397acac70271acce
-16	166	8169673707836133	CMakeFiles/Chassis_2026.dir/application/chassis_task.c.obj	e71e5f8f800e3343
+58	280	8171392852014661	CMakeFiles/Chassis_2026.dir/application/chassis_task.c.obj	e71e5f8f800e3343
 13	208	8165307075447189	CMakeFiles/Chassis_2026.dir/bsp/bsp_line_gpio.c.obj	f2f8a85852ebb7ca
 49	623	8169520455567719	CMakeFiles/Chassis_2026.dir/bsp/bsp_encoder.c.obj	e65a4b306afc3b27
 79	617	8166783143148977	CMakeFiles/Chassis_2026.dir/System/Delay.c.obj	f78dd006bd8210ea
@@ -22,10 +22,23 @@
 22	207	8165307075523251	CMakeFiles/Chassis_2026.dir/bsp/bsp_soft_i2c.c.obj	b5776c07e47b7f1d
 48	393	8163643092932480	CMakeFiles/Chassis_2026.dir/Drivers/STM32F10x_StdPeriph_Driver/src/stm32f10x_tim.c.obj	223968214903e559
 4	178	8166936925199686	CMakeFiles/Chassis_2026.dir/modules/oled.c.obj	71c8f9cb8f3ebb76
-166	350	8169673709322918	Chassis_2026.elf	5c864563c29e0c9
+133	397	8171392935122483	Chassis_2026.elf	72f1f0ddaab99151
 2	19	8163643092189755	clean	626b62239cdfb7ee
-23	164	8169672736236104	CMakeFiles/Chassis_2026.dir/modules/speed_loop.c.obj	84765e918c892a81
-2	305	8169675531950668	build.ninja	576e8dc3ad1671fb
-2	305	8169675531921038	D:/Microsoft VS code/Projects/LabProject_2026/Chassis_2026/build-cmake/cmake_install.cmake	576e8dc3ad1671fb
-28	165	8169672736283786	CMakeFiles/Chassis_2026.dir/modules/params.c.obj	f9d5dd3fe7eb8051
+32	228	8171392851758711	CMakeFiles/Chassis_2026.dir/modules/speed_loop.c.obj	84765e918c892a81
+2	182	8172122915819635	build.ninja	576e8dc3ad1671fb
+2	182	8172122915779760	D:/Microsoft VS code/Projects/LabProject_2026/Chassis_2026/build-cmake/cmake_install.cmake	576e8dc3ad1671fb
+37	226	8171392851815298	CMakeFiles/Chassis_2026.dir/modules/params.c.obj	f9d5dd3fe7eb8051
 16	129	8168832537295381	CMakeFiles/Chassis_2026.dir/bsp/bsp_flash.c.obj	124b1f19999b4456
+4	133	8171392933828771	CMakeFiles/Chassis_2026.dir/modules/blackbox.c.obj	7f255de44af21275
+2	104	8172122915819635	build.ninja	576e8dc3ad1671fb
+2	104	8172122915819635	D:/Microsoft VS code/Projects/LabProject_2026/Chassis_2026/build-cmake/cmake_install.cmake	576e8dc3ad1671fb
+23	614	8172122916319459	CMakeFiles/Chassis_2026.dir/Core/Src/main.c.obj	67cdccd019448158
+105	615	8172122917145855	CMakeFiles/Chassis_2026.dir/modules/odometry.c.obj	9e3ba3aeb09b671c
+95	617	8172122917050906	CMakeFiles/Chassis_2026.dir/modules/speed_loop.c.obj	84765e918c892a81
+90	617	8172122916988146	CMakeFiles/Chassis_2026.dir/modules/motor_driver.c.obj	cc64ccbd51aa4c43
+114	618	8172122917233329	CMakeFiles/Chassis_2026.dir/modules/distance_sensor.c.obj	1d6aa21b12cb59ae
+100	619	8172122917100429	CMakeFiles/Chassis_2026.dir/modules/params.c.obj	f9d5dd3fe7eb8051
+109	619	8172122917189945	CMakeFiles/Chassis_2026.dir/modules/vision_link.c.obj	7124c9f15283f027
+85	629	8172122916949275	CMakeFiles/Chassis_2026.dir/modules/line_sensor.c.obj	c59fb63f6399730a
+4	159	8172123010487659	CMakeFiles/Chassis_2026.dir/application/chassis_task.c.obj	e71e5f8f800e3343
+159	1002	8172123012021582	Chassis_2026.elf	2fef3b98a32ee523

@@ -58,12 +58,24 @@ void VisionLink_Poll(void);
 #define LINK_BEEP_LINK_LOST      4U   /* 断链：长鸣 0.5 s */
 #define LINK_BEEP_LOW_BAT        5U   /* 低电压：一短声 */
 
+/* 模式上报（0x06，底盘 -> 云台，第 8 字节 = 模式码）。
+ * 云台用它决定"丢人后要不要扫视"：只有模式 1 才扫。 */
+#define LINK_MODE_LINE           0U   /* 模式 1：循迹 */
+#define LINK_MODE_FOLLOW         1U   /* 模式 2：人体跟随 */
+#define LINK_MODE_STOP           2U   /* 整车停（蓝牙 stop 锁存） */
+
 /** @brief 让云台板蜂鸣器响一下（0x05 帧，底盘 -> 云台）。
  *  @param pattern 音型号：0 起跑 / 1 过十字 / 2 丢线 / 3 停车线 / 4 断链 / 5 低电压。
  *
  *  蜂鸣器在云台板上，而触发这些事件的信息只有底盘有，所以要跨板发。
  *  内部走 TX 环缓，不阻塞控制环；链路断开时调用无副作用（帧发出去没人收）。 */
 void VisionLink_SendBeep(uint8_t pattern);
+
+/**
+ * @brief 向云台板上报当前工作模式（LINK_MODE_*）。
+ *        模式变化时立刻发一次，另每 1 s 补发一次（防丢帧）。
+ */
+void VisionLink_SendMode(uint8_t mode);
 
 /** @brief 取最近一次快照（值拷贝）。 */
 VisionLink_t VisionLink_Get(void);

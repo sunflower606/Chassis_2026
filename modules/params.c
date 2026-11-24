@@ -53,7 +53,9 @@ static Param_t s_params[PARAM_COUNT] = {
     { PARAM_ID_LKD,  "lkd",  "permille",  -200, 200,
       (int16_t)CHASSIS_LINE_STEER_KD },
     { PARAM_ID_CRS,  "crs",  "ms",           0, 1000,
-      (int16_t)CHASSIS_LINE_CROSS_MS }
+      (int16_t)CHASSIS_LINE_CROSS_MS },
+    /* 波形输出开关：只影响串口多不多发一行数字，不影响任何控制量 */
+    { PARAM_ID_WAVE, "wave", "0/1",          0, 1,    0 }
 };
 
 /* 表里每一项的出厂默认值（编译期常量，用于 Reset） */

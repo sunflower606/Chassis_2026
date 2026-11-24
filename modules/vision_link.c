@@ -3,6 +3,7 @@
 #include <stdbool.h>
 
 #include "bsp_uart.h"
+#include "blackbox.h"
 #include "chassis_config.h"
 #include "params.h"
 #include "Delay.h"
@@ -17,6 +18,7 @@
 #define LINK_TYPE_PARAM_SET     0x03U   /* 调参设置：云台 -> 底盘 */
 #define LINK_TYPE_PARAM_ACK     0x04U   /* 调参应答：底盘 -> 云台 */
 #define LINK_TYPE_BEEP          0x05U   /* 提示音：底盘 -> 云台（第 8 字节 = 音型号） */
+#define LINK_TYPE_MODE          0x06U   /* 模式上报：底盘 -> 云台（第 8 字节 = 模式码） */
 
 /* 0x03 帧第 8 字节：操作码 */
 #define LINK_PARAM_OP_SET       0U      /* 改值 */
@@ -24,10 +26,12 @@
 #define LINK_PARAM_OP_RESET     2U      /* 全部恢复默认值（id 忽略） */
 #define LINK_PARAM_OP_TOGGLE    3U      /* 切换 A2（参数存 Flash）开关，结果在应答值里 */
 #define LINK_PARAM_OP_SAVE      4U      /* 把当前参数写进 Flash（需 A2 已开） */
+#define LINK_PARAM_OP_DUMP      5U      /* 导出黑匣子（逐行 ASCII 文本回传） */
 
 /* 应答里用来表示"不是某个具体参数"的特殊 id */
 #define LINK_ACK_ID_RESET       0xFFFFU /* 恢复默认成功了 */
 #define LINK_ACK_ID_SAVE        0xFFFEU /* 存盘结果：value = 1 成功 / 0 失败 */
+#define LINK_ACK_ID_DUMP        0xFFFDU /* 黑匣子导出已开始，value = 条数 */
 #define LINK_LENGTH             0x08U
 #define LINK_CHECKSUM_INDEX     12U
 
@@ -124,6 +128,37 @@ static void VisionLink_SendParamAck(uint16_t id, int16_t value, uint8_t error_co
  *   0 起跑  1 过十字  2 丢线/丢人  3 到停车线  4 断链  5 低电压
  *
  * 同样走 TX 环缓，13 字节约 1.1 ms，不阻塞 5 ms 控制环。 */
+/* 模式上报：13 字节，第 8 字节 = 模式码。
+ * 云台收到后只在"模式 1（循迹）"时才允许丢人扫视。 */
+void VisionLink_SendMode(uint8_t mode)
+{
+    uint8_t frame[LINK_FRAME_LEN];
+    uint8_t checksum = 0U;
+    uint8_t i;
+
+    frame[0] = LINK_HEAD_0;
+    frame[1] = LINK_HEAD_1;
+    frame[2] = LINK_TYPE_MODE;
+    frame[3] = LINK_LENGTH;
+    frame[4] = 0U;
+    frame[5] = 0U;
+    frame[6] = 0U;
+    frame[7] = 0U;
+    frame[8] = mode;
+    frame[9] = 0U;
+    frame[10] = 0U;
+    frame[11] = 0U;
+
+    for (i = 0U; i < LINK_CHECKSUM_INDEX; i++) {
+        checksum ^= frame[i];
+    }
+    frame[LINK_CHECKSUM_INDEX] = checksum;
+
+    for (i = 0U; i < LINK_FRAME_LEN; i++) {
+        BSP_UART_SendByte(frame[i]);
+    }
+}
+
 void VisionLink_SendBeep(uint8_t pattern)
 {
     uint8_t frame[LINK_FRAME_LEN];
@@ -186,6 +221,18 @@ static void VisionLink_HandleParamSet(const uint8_t *raw)
         VisionLink_SendParamAck(LINK_ACK_ID_SAVE,
                                 (result == PARAM_OK) ? 1 : 0,
                                 result);
+        break;
+
+    case LINK_PARAM_OP_DUMP:
+        /* 导出是分拍做的：这里只负责"开始"，数据由 Blackbox_DumpStep() 慢慢发，
+         * 所以立即回执 —— 上位机看到 ACK 就可以开始存文本了。 */
+        if (Blackbox_HasData() != 0U) {
+            Blackbox_StartDump();
+            VisionLink_SendParamAck(LINK_ACK_ID_DUMP,
+                                    (int16_t)Blackbox_Count(), PARAM_OK);
+        } else {
+            VisionLink_SendParamAck(LINK_ACK_ID_DUMP, 0, PARAM_ERR_NOT_READY);
+        }
         break;
 
     case LINK_PARAM_OP_SET:
